@@ -3,6 +3,7 @@ import './v3/styles.css';
 import './v3/cinematics.css';
 import './v4/styles.css';
 import './v5/styles.css';
+import './v6/styles.css';
 import { GameMasterApp } from './game/Multiplayer';
 import { AdventureGameV4 } from './v4/Game';
 
