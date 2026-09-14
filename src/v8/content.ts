@@ -25,10 +25,23 @@ export const STORY = [
   }
 ];
 
+export const WAREHOUSE_DOCUMENT = {
+  title: 'EXPEDIENTE DE RECIBO · AURORA',
+  subtitle: 'Pedido PO-AUR-2417 / Remisión REC-0914',
+  rows: [
+    ['Referencia solicitada', 'CT-48'],
+    ['Revisión aprobada', 'B'],
+    ['Cantidad requerida', '24 unidades'],
+    ['Criterio documental', 'COA vigente + referencia/revisión coincidente'],
+    ['Regla de segregación', 'Material incompatible debe pasar a CUARENTENA antes de producción']
+  ] as Array<[string, string]>
+};
+
+// Deliberately raw evidence: the scanner reports facts, not the decision.
 export const WAREHOUSE_SCANS: Record<string, { title: string; detail: string; result: string }> = {
-  'pallet-a': { title: 'Pallet A · L-0908-A', detail: 'CT-48 Rev. B · COA vigente · 24 unidades', result: 'Conforme para el pedido investigado.' },
-  'pallet-b': { title: 'Pallet B · L-0908-B', detail: 'CT-48 Rev. A · COA vigente · 24 unidades', result: 'Revisión incompatible con el pedido: requiere cuarentena.' },
-  'pallet-c': { title: 'Pallet C · L-0906-C', detail: 'CT-47 Rev. C · COA vigente · 12 unidades', result: 'Otro producto. No pertenece al pedido investigado.' }
+  'pallet-a': { title: 'Pallet A · L-0908-A', detail: 'CT-48 · Rev. B · 24 unidades', result: 'COA: vigente · proveedor homologado' },
+  'pallet-b': { title: 'Pallet B · L-0908-B', detail: 'CT-48 · Rev. A · 24 unidades', result: 'COA: vigente · proveedor homologado' },
+  'pallet-c': { title: 'Pallet C · L-0906-C', detail: 'CT-47 · Rev. C · 12 unidades', result: 'COA: vigente · pedido diferente' }
 };
 
 export const GAUGE_READINGS: Record<string, { name: string; reading: string; error: string; conforming: boolean }> = {
