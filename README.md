@@ -1,67 +1,89 @@
-# Crisis en Electroingeniería — Vertical Slice 01
+# Crisis en Electroingeniería — Quality Dungeon V2
 
-Primera entrega jugable de un escape room / dungeon RPG 3D para navegador.
+Videojuego 3D para navegador inspirado en dungeon RPG + escape room empresarial. La experiencia convierte herramientas de calidad (trazabilidad, Ishikawa, 5 Porqués y CAPA) en mecánicas físicas de exploración, combate y resolución de retos.
 
-## Qué incluye
+## V2: experiencia jugable
 
-- Dungeon 3D cenital/isométrico construido con assets KayKit.
-- Personaje Knight animado (idle, caminar, correr e interactuar).
-- Cámara ortográfica con seguimiento suave.
-- Colisiones y puertas/rejas con requisitos.
-- Tres evidencias de trazabilidad que se consultan como documentos.
-- Cámara de riesgo con penalización de tiempo.
-- Guardián de Calidad (Skeleton Warrior) con reto de trazabilidad.
-- Llave de Calidad y segunda puerta.
-- Reto final de causa raíz + acción correctiva.
-- Cronómetro continuo (también mientras se leen documentos), errores, objetivo dinámico, HUD y pantalla de resultados.
+- Registro de jugador/equipo, indicativo, color y especialización: Inspector, Analista o Ingeniero.
+- Controles relativos a cámara: `W/↑` siempre avanza visualmente hacia arriba y `S/↓` hacia abajo.
+- Mazmorra ampliada a cinco sectores conectados por compuertas y objetivos progresivos.
+- Cofres físicos con tapa animada, pedestales, coleccionables e inventario visual.
+- Tres evidencias documentales reales dentro del escenario.
+- Minijuego de reconstrucción de trazabilidad.
+- Cámara de Riesgo con enemigos “Error”, integridad, penalizaciones y ataque/verificación.
+- Ishikawa construido físicamente en la sala, seis fichas de causa y clasificación interactiva.
+- Secuencia completa de 5 Porqués con retroalimentación causal.
+- Minijuego final de ventana de verificación y acción correctiva CAPA.
+- Audio procedural Web Audio: ambiente, pasos, impactos, cofres, puertas y feedback.
+- Puntuación, tiempo, integridad, errores y telemetría de misión.
+- Multiequipo + Game Master opcional mediante Supabase Realtime.
 
-## Ejecutar
+## Controles
 
-Requiere Node.js 20+. En Windows puedes hacer doble clic en `INICIAR_JUEGO.bat`; instalará dependencias la primera vez y abrirá el navegador.
+- `WASD` / flechas: mover relativo a la cámara.
+- `Shift`: correr.
+- `E`: interactuar, recoger, abrir y activar.
+- `Space`: neutralizar errores a corta distancia.
+- `I`: abrir/cerrar inventario.
+- `M`: activar/silenciar audio.
 
-Ejecución manual:
+## Ejecutar local
+
+Requiere Node.js 22+.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Abrir la URL que muestre Vite (normalmente http://localhost:5173).
-
-## Build de producción
+Build de producción:
 
 ```bash
 npm run build
 npm run preview
 ```
 
-## Controles
+## Vercel
 
-- `WASD` o flechas: mover.
-- `Shift`: correr.
-- `E`: interactuar.
+El proyecto es Vite estático. Vercel debe ejecutar `npm run build` y publicar `dist`.
+
+Para jugar sin Supabase no se requiere ninguna variable de entorno. Para multiequipo/Game Master agrega en Vercel:
+
+```text
+VITE_SUPABASE_URL=https://TU-PROYECTO.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+Nunca uses `service_role` en variables `VITE_*`: todo valor `VITE_*` termina en el navegador.
+
+## Supabase / Multiequipo
+
+1. Usa un proyecto Supabase dedicado al juego.
+2. Habilita **Anonymous Sign-ins** para los equipos jugadores.
+3. Ejecuta `supabase/migrations/20260914103000_game_master.sql`.
+4. Crea el usuario del Game Master mediante Supabase Auth y asigna `app_metadata.role = "game_master"` desde una operación administrativa segura.
+5. Configura `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`.
+6. Juego normal: `/`.
+7. Centro Game Master: `/?gm=1`.
+
+El esquema habilita RLS en las tres tablas. Un equipo sólo puede ver/modificar su propia sesión; el Game Master sólo obtiene acceso global cuando su JWT contiene `app_metadata.role = game_master`. Los comandos `pause`, `resume`, `add_time`, `remove_time`, `message` y `finish` viajan por Supabase Realtime.
+
+### Tablas
+
+- `game_sessions`: estado vivo por equipo, fase, tiempo, puntaje, salud y progreso.
+- `game_events`: telemetría de eventos pedagógicos/gameplay.
+- `gm_commands`: órdenes del Game Master hacia sesiones específicas.
 
 ## Arquitectura
 
-- `src/game/Game.ts`: bucle principal, renderer, cámara, tiempo y finalización.
-- `src/game/Player.ts`: movimiento, colisión, rotación y AnimationMixer.
-- `src/game/World.ts`: mapa, props, puertas, puzzles, evidencias y guardián.
-- `src/game/UI.ts`: HUD, documentos, diálogos, preguntas y resultados.
-- `src/game/AssetLibrary.ts`: caché y clonado de GLTF/GLB.
+- `src/game/Game.ts`: loop principal, cámara, estado, controles y comandos Game Master.
+- `src/game/Player.ts`: personaje, movimiento relativo a cámara, animación y ataque.
+- `src/game/World.ts`: dungeon, cofres, enemigos, Ishikawa, puzzles y progresión.
+- `src/game/UI.ts`: onboarding, HUD, inventario, minijuegos, documentos y resultados.
+- `src/game/AudioManager.ts`: audio procedural sin dependencias de archivos externos.
+- `src/game/Multiplayer.ts`: Supabase, sesiones, Realtime y consola Game Master.
+- `src/game/AssetLibrary.ts`: cache/clonado de GLTF/GLB KayKit.
 
 ## Licencias
 
-Los assets KayKit incluidos provienen de los ZIP entregados para el proyecto y están licenciados CC0. Se conservaron las licencias originales en `public/assets/licenses/`.
-
-Three.js y Vite se distribuyen bajo licencia MIT.
-
-## Siguiente iteración propuesta
-
-1. Diseñador de niveles basado en JSON/Tiled o editor propio.
-2. Inventario visual de evidencias con drag & drop.
-3. Ishikawa como puzzle espacial de 6 pedestales.
-4. Secuencia completa de 5 Porqués.
-5. Múltiples equipos y ranking vía Supabase.
-6. Panel de Game Master y eventos en tiempo real.
-7. QR físicos para pistas externas.
-8. Audio, partículas, cinemáticas y transición de batalla/reto.
+Los assets KayKit incluidos están bajo CC0 y sus licencias se conservan en `public/assets/licenses/`. Three.js, Vite y Supabase JS se distribuyen bajo sus respectivas licencias open source.

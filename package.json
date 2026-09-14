@@ -1,19 +1,23 @@
 {
-  "name": "crisis-electroingenieria-v1",
+  "name": "crisis-electroingenieria",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.116.0",
     "three": "0.186.0"
   },
   "devDependencies": {
-    "@types/three": "^0.186.0",
-    "typescript": "^5.9.0",
+    "@types/three": "0.186.0",
+    "typescript": "5.9.2",
     "vite": "8.3.0"
   }
 }

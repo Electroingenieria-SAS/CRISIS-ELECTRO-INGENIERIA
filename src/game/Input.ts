@@ -4,12 +4,13 @@ export class Input {
 
   constructor() {
     window.addEventListener('keydown', (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+
       const code = event.code;
       if (!this.held.has(code)) this.pressed.add(code);
       this.held.add(code);
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(code)) {
-        event.preventDefault();
-      }
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(code)) event.preventDefault();
     });
 
     window.addEventListener('keyup', (event) => {
