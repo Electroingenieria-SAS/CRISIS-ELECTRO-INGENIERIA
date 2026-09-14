@@ -1,1 +1,0 @@
-Build verification marker for the current V8 rebuild head.
