@@ -37,11 +37,23 @@ export const WAREHOUSE_DOCUMENT = {
   ] as Array<[string, string]>
 };
 
-// Deliberately raw evidence: the scanner reports facts, not the decision.
 export const WAREHOUSE_SCANS: Record<string, { title: string; detail: string; result: string }> = {
   'pallet-a': { title: 'Pallet A · L-0908-A', detail: 'CT-48 · Rev. B · 24 unidades', result: 'COA: vigente · proveedor homologado' },
   'pallet-b': { title: 'Pallet B · L-0908-B', detail: 'CT-48 · Rev. A · 24 unidades', result: 'COA: vigente · proveedor homologado' },
   'pallet-c': { title: 'Pallet C · L-0906-C', detail: 'CT-47 · Rev. C · 12 unidades', result: 'COA: vigente · pedido diferente' }
+};
+
+export const PRODUCTION_DOCUMENT = {
+  title: 'DOSSIER DE PROCESO · CELDA CT-48',
+  subtitle: 'OT-260914-017 / Hoja de set-up SET-CT48-B',
+  rows: [
+    ['Orden liberada', 'CT-48 · Rev. B · 24 unidades'],
+    ['Material autorizado', 'L-0908-A · CT-48 Rev. B'],
+    ['Receta requerida', 'PRG-CT48-B'],
+    ['Condición de arranque', 'Energía + guarda + fijación + programa validados'],
+    ['Primera pieza', 'Debe verificarse antes de liberar el lote completo'],
+    ['Regla de seguridad', 'Ningún interlock puede puentearse para acelerar el set-up']
+  ] as Array<[string, string]>
 };
 
 export const GAUGE_READINGS: Record<string, { name: string; reading: string; error: string; conforming: boolean }> = {
