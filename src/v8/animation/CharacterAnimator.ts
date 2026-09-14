@@ -74,6 +74,7 @@ export class CharacterAnimator {
   }
 
   play(action: Exclude<CharacterAction, null>): void {
+    if (this.action === action) return;
     this.action = action;
     this.actionTime = 0;
     this.actionDuration = action === 'scan' ? 0.82 : action === 'interact' ? 0.62 : 0.72;
