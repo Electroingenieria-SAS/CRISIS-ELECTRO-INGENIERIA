@@ -54,9 +54,8 @@ export class QualityZone {
     right.position.x = 38.35;
     this.group.add(rear, left, right);
 
-    const glassMat = this.kit.materials.glass;
     for (const x of [14.2, 20.8, 27.4, 34.0]) {
-      const glass = this.kit.box(5.7, 2.45, 0.06, glassMat, false, false);
+      const glass = this.kit.box(5.7, 2.45, 0.06, this.kit.materials.glass, false, false);
       glass.position.set(x, 2.25, -39.72);
       this.group.add(glass);
     }
@@ -100,35 +99,41 @@ export class QualityZone {
   }
 
   private buildMasterStandard(): void {
-    const group = new THREE.Group();
-    group.position.set(14.3, 0, -27.7);
-    this.group.add(group);
+    const station = new THREE.Group();
+    station.position.set(14.3, 0, -27.7);
+    this.group.add(station);
 
     const pedestal = this.kit.box(1.6, 0.95, 1.6, this.kit.materials.steelDark);
     pedestal.position.y = 0.48;
-    group.add(pedestal);
+    station.add(pedestal);
     const foam = this.kit.box(1.32, 0.12, 1.32, this.kit.materials.black);
     foam.position.y = 1.02;
-    group.add(foam);
+    station.add(foam);
 
+    const standardObject = new THREE.Group();
+    standardObject.position.set(0, 1.22, 0);
+    station.add(standardObject);
     const caseBottom = this.kit.box(1.02, 0.18, 0.82, this.kit.materials.blue);
-    caseBottom.position.y = 1.18;
-    group.add(caseBottom);
+    caseBottom.position.y = 0.1;
+    standardObject.add(caseBottom);
     const standard = this.kit.box(0.72, 0.42, 0.42, this.kit.materials.steel);
-    standard.position.y = 1.48;
-    group.add(standard);
+    standard.position.y = 0.38;
+    standardObject.add(standard);
+    const microLabel = this.kit.sign('50,00', 0.72, 0.22, '#f7f7f2', '#17232a', '#7eb7ff');
+    microLabel.position.set(0, 0.38, 0.23);
+    standardObject.add(microLabel);
 
-    const sign = this.kit.sign('PATRÓN 50,00 mm', 2.4, 0.46, '#173346', '#ffffff', '#7eb7ff');
+    const sign = this.kit.sign('PATRÓN MAESTRO 50,00 mm', 3.15, 0.46, '#173346', '#ffffff', '#7eb7ff');
     sign.position.set(0, 2.35, 0);
-    group.add(sign);
-    this.addMarker(group, 0x7eb7ff, 2.85);
+    station.add(sign);
+    this.addMarker(standardObject, 0x7eb7ff, 1.25);
 
     this.carryables.set('master-block', {
       id: 'master-block',
       label: 'Patrón maestro 50,00 mm',
-      object: group,
+      object: standardObject,
       radius: 2.2,
-      home: [14.3, 0, -27.7]
+      home: [14.3, 1.22, -27.7]
     });
   }
 
