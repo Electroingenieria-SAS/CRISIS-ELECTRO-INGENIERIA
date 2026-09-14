@@ -145,7 +145,7 @@ export class AdventureGame {
 
       // Literal screen-space movement. The horizontal projection of the camera
       // position is (sin(yaw), cos(yaw)); therefore top-of-screen on the floor
-      // is its exact opposite. This makes W/Up invariant under camera rotation.
+      // is its exact opposite. W/Up remains correct after any camera rotation.
       const screenUp = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).normalize();
       const screenRight = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).normalize();
       this.player.update(dt, this.controls, this.world.colliders, screenUp, screenRight, movementLocked);
@@ -205,15 +205,17 @@ export class AdventureGame {
     const specs: Array<{ id: string; accent: string; helmet: string; shirt: string }> = [
       { id: 'laura-control', accent: '#4A94D0', helmet: '#F4C542', shirt: '#173A55' },
       { id: 'mateo', accent: '#D6A82F', helmet: '#F4C542', shirt: '#34434D' },
-      { id: 'andres', accent: '#55B985', helmet: '#E7EDF0', shirt: '#284638' },
-      { id: 'daniela', accent: '#79BDEE', helmet: '#F4C542', shirt: '#25425A' },
-      { id: 'camilo', accent: '#E89A58', helmet: '#E7EDF0', shirt: '#4A392E' },
-      { id: 'laura-capa', accent: '#A98AE0', helmet: '#F4C542', shirt: '#3A3151' }
+      { id: 'operator', accent: '#55B985', helmet: '#E7EDF0', shirt: '#284638' },
+      { id: 'quality-tech', accent: '#79BDEE', helmet: '#F4C542', shirt: '#25425A' },
+      { id: 'dispatcher', accent: '#E89A58', helmet: '#E7EDF0', shirt: '#4A392E' },
+      { id: 'capa-lead', accent: '#A98AE0', helmet: '#F4C542', shirt: '#3A3151' }
     ];
 
     for (const spec of specs) {
       const legacy = this.scene.getObjectByName(spec.id);
       if (!legacy) continue;
+      const worldPosition = legacy.getWorldPosition(new THREE.Vector3());
+      const worldQuaternion = legacy.getWorldQuaternion(new THREE.Quaternion());
       legacy.visible = false;
 
       const engineer = new EngineerAvatar({
@@ -223,10 +225,8 @@ export class AdventureGame {
         vest: '#E8B82D',
         pants: '#2B363F'
       });
-      engineer.group.position.copy(legacy.getWorldPosition(new THREE.Vector3()));
-      engineer.group.rotation.y = legacy.getWorldQuaternion(new THREE.Quaternion()).setFromEuler
-        ? legacy.rotation.y
-        : 0;
+      engineer.group.position.copy(worldPosition);
+      engineer.group.quaternion.copy(worldQuaternion);
       this.scene.add(engineer.group);
       this.npcVisuals.push(engineer);
     }
