@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { AssetLibrary } from '../game/AssetLibrary';
 import { AdventureAudio } from './Audio';
-import { OPENING_DIALOGUE } from './content';
+import { CinematicDirector } from './CinematicDirector';
 import { Controls } from './Controls';
 import { AdventurePlayer } from './Player';
+import { CHAPTER_CINEMATICS, CHAPTER_DIALOGUES, OPENING_CINEMATIC, PROLOGUE_BRIEFING } from './story';
 import type { GameProgress, PlayerProfile, ZoneId } from './types';
 import { AdventureUI } from './UI';
 import { AdventureWorld } from './World';
@@ -17,12 +18,14 @@ export class AdventureGame {
   private ui: AdventureUI;
   private audio = new AdventureAudio();
   private controls: Controls;
+  private cinematic: CinematicDirector;
   private player!: AdventurePlayer;
   private world!: AdventureWorld;
   private profile!: PlayerProfile;
   private running = false;
   private finished = false;
-  private hoveredId: string | null = null;
+  private chapterTransitioning = false;
+  private chapterCinematicsSeen = new Set<ZoneId>(['control']);
   private yaw = Math.PI * 0.72;
   private pitch = 0.76;
   private distance = 10.8;
@@ -64,6 +67,7 @@ export class AdventureGame {
 
     this.camera = new THREE.PerspectiveCamera(47, window.innerWidth / window.innerHeight, 0.1, 180);
     this.ui = new AdventureUI(root);
+    this.cinematic = new CinematicDirector(root, this.camera);
     this.controls = new Controls(this.renderer.domElement);
     window.addEventListener('resize', this.onResize);
   }
@@ -73,10 +77,10 @@ export class AdventureGame {
     this.profile = await this.ui.createProfile();
     await this.audio.unlock();
 
-    this.player = new AdventurePlayer(this.assets, this.profile);
+    this.player = new AdventurePlayer(this.profile);
     this.world = new AdventureWorld(this.scene, this.assets, this.ui, this.progress, this.profile, this.audio, () => this.finish());
 
-    this.ui.setObjective('Cargando planta...', 'Preparando activos, terminales y controles de misión.');
+    this.ui.setObjective('Cargando planta...', 'Preparando áreas, terminales y controles de misión.');
     await Promise.all([this.player.init(), this.world.init()]);
     this.scene.add(this.player.group);
     this.player.position.set(-31.6, 0, 0);
@@ -84,16 +88,21 @@ export class AdventureGame {
 
     this.positionCamera(true, 0);
     this.renderer.render(this.scene, this.camera);
-    await this.ui.dialogue(OPENING_DIALOGUE);
 
-    this.progress.startedAt = performance.now();
-    this.progress.objective = 'Verifica el pedido original';
-    this.progress.objectiveDetail = 'Habla con Calidad y consulta la terminal azul antes de atravesar el primer control de acceso.';
-    this.ui.setObjective(this.progress.objective, this.progress.objectiveDetail);
-    this.ui.update(this.progress);
+    // Start the render loop before awaiting cinematics. The mission timer remains
+    // stopped until the briefing is complete.
     this.running = true;
     this.clock.start();
     this.loop();
+
+    await this.cinematic.play(OPENING_CINEMATIC);
+    await this.ui.dialogue(PROLOGUE_BRIEFING);
+
+    this.progress.startedAt = performance.now();
+    this.progress.objective = 'Verifica el pedido original';
+    this.progress.objectiveDetail = 'Habla con Laura y consulta la terminal azul antes de atravesar el primer control de acceso.';
+    this.ui.setObjective(this.progress.objective, this.progress.objectiveDetail);
+    this.ui.update(this.progress);
   }
 
   private configureScene(): void {
@@ -127,11 +136,17 @@ export class AdventureGame {
     const dt = Math.min(this.clock.getDelta(), 0.045);
 
     if (!this.finished) {
-      this.handleCameraInput(dt);
+      if (this.cinematic.isPlaying) this.cinematic.update(dt);
+      else this.handleCameraInput(dt);
+
       const modalLocked = this.ui.isModalOpen();
-      const forward = new THREE.Vector3();
-      this.camera.getWorldDirection(forward);
-      this.player.update(dt, this.controls, this.world.colliders, forward, modalLocked);
+      const movementLocked = modalLocked || this.cinematic.isPlaying || this.chapterTransitioning;
+
+      // Exact screen-space axes. These vectors describe literal top/right of
+      // the display on the horizontal floor plane for the current camera yaw.
+      const screenUp = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).normalize();
+      const screenRight = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).normalize();
+      this.player.update(dt, this.controls, this.world.colliders, screenUp, screenRight, movementLocked);
       this.world.update(dt);
 
       const zone = this.world.zoneForPosition(this.player.position);
@@ -139,19 +154,26 @@ export class AdventureGame {
         this.lastZone = zone;
         this.progress.zone = zone;
         this.ui.setZone(zone);
-        this.ui.showToast('NUEVA ÁREA', this.zoneArrivalText(zone), 'normal');
+
+        const sequence = CHAPTER_CINEMATICS[zone];
+        if (sequence && !this.chapterCinematicsSeen.has(zone)) {
+          this.chapterCinematicsSeen.add(zone);
+          void this.playChapterIntro(zone);
+        } else {
+          this.ui.showToast('NUEVA ÁREA', this.zoneArrivalText(zone), 'normal');
+        }
       }
 
       this.timerAccumulator += dt;
-      if (this.progress.startedAt !== null && this.timerAccumulator >= 0.1) {
+      const storyPaused = this.cinematic.isPlaying || this.chapterTransitioning || modalLocked;
+      if (this.progress.startedAt !== null && !storyPaused && this.timerAccumulator >= 0.1) {
         this.progress.remainingSeconds = Math.max(0, this.progress.remainingSeconds - this.timerAccumulator);
         this.timerAccumulator = 0;
       }
       if (this.progress.remainingSeconds <= 0) this.fail();
 
-      if (!modalLocked) {
+      if (!movementLocked) {
         const nearest = this.world.nearestInteractable(this.player.position);
-        this.hoveredId = nearest?.id ?? null;
         this.ui.setInteraction(nearest?.label ?? null);
         if (nearest && this.controls.consumePress('KeyE')) {
           this.player.playInteract();
@@ -166,16 +188,31 @@ export class AdventureGame {
         }
         if (this.controls.consumePress('Escape')) this.ui.closePanels();
       } else {
-        this.hoveredId = null;
         this.ui.setInteraction(null);
       }
     }
 
-    this.positionCamera(false, dt);
+    if (!this.cinematic.isPlaying) this.positionCamera(false, dt);
     this.ui.update(this.progress);
     this.renderer.render(this.scene, this.camera);
     this.controls.endFrame();
   };
+
+  private async playChapterIntro(zone: ZoneId): Promise<void> {
+    const sequence = CHAPTER_CINEMATICS[zone];
+    if (!sequence) return;
+
+    this.chapterTransitioning = true;
+    this.ui.closePanels();
+    try {
+      await this.cinematic.play(sequence);
+      const briefing = CHAPTER_DIALOGUES[zone];
+      if (briefing?.length) await this.ui.dialogue(briefing);
+      this.ui.showToast('CAPÍTULO ACTIVO', this.zoneArrivalText(zone), 'normal');
+    } finally {
+      this.chapterTransitioning = false;
+    }
+  }
 
   private handleCameraInput(dt: number): void {
     const pointer = this.controls.consumePointerDelta();
@@ -186,7 +223,6 @@ export class AdventureGame {
     const wheel = this.controls.consumeWheel();
     if (wheel !== 0) this.distance = THREE.MathUtils.clamp(this.distance + wheel * 0.008, 7.0, 15.5);
 
-    // Gentle auto-alignment keeps the camera legible after a long run while preserving player control.
     if (Math.abs(pointer.x) < 0.01 && Math.abs(pointer.y) < 0.01 && this.controls.isDown('KeyR')) {
       this.yaw = THREE.MathUtils.damp(this.yaw, Math.PI * 0.72, 4.5, dt);
       this.pitch = THREE.MathUtils.damp(this.pitch, 0.76, 4.5, dt);
@@ -237,11 +273,11 @@ export class AdventureGame {
   private zoneArrivalText(zone: ZoneId): string {
     const messages: Record<ZoneId, string> = {
       control: 'Centro de mando y referencia maestra del incidente.',
-      warehouse: 'Rastrea lotes y verifica qué material fue entregado contra la OT.',
-      production: 'Reconstruye el flujo real de liberación y fabricación.',
-      quality: 'Ordena evidencia causal, construye el Ishikawa y profundiza con 5 Porqués.',
-      dispatch: 'Contén el incidente y preserva la trazabilidad de salida.',
-      capa: 'Convierte la causa raíz en una acción correctiva verificable.'
+      warehouse: 'Rastrea lotes y demuestra qué material fue usado contra la OT.',
+      production: 'Reconstruye el flujo real y determina si el error nació o llegó a producción.',
+      quality: 'Construye el Ishikawa y profundiza la evidencia con 5 Porqués.',
+      dispatch: 'Contén el incidente antes de permitir cualquier nueva salida.',
+      capa: 'Transforma la causa raíz en una acción correctiva medible y verificable.'
     };
     return messages[zone];
   }
