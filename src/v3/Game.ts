@@ -3,6 +3,7 @@ import { AssetLibrary } from '../game/AssetLibrary';
 import { AdventureAudio } from './Audio';
 import { CinematicDirector } from './CinematicDirector';
 import { Controls } from './Controls';
+import { EngineerAvatar } from './EngineerAvatar';
 import { AdventurePlayer } from './Player';
 import { CHAPTER_CINEMATICS, CHAPTER_DIALOGUES, OPENING_CINEMATIC, PROLOGUE_BRIEFING } from './story';
 import type { GameProgress, PlayerProfile, ZoneId } from './types';
@@ -26,6 +27,7 @@ export class AdventureGame {
   private finished = false;
   private chapterTransitioning = false;
   private chapterCinematicsSeen = new Set<ZoneId>(['control']);
+  private npcVisuals: EngineerAvatar[] = [];
   private yaw = Math.PI * 0.72;
   private pitch = 0.76;
   private distance = 10.8;
@@ -85,12 +87,11 @@ export class AdventureGame {
     this.scene.add(this.player.group);
     this.player.position.set(-31.6, 0, 0);
     this.player.onFootstep = () => this.audio.step();
+    this.replaceLegacyNpcVisuals();
 
     this.positionCamera(true, 0);
     this.renderer.render(this.scene, this.camera);
 
-    // Start the render loop before awaiting cinematics. The mission timer remains
-    // stopped until the briefing is complete.
     this.running = true;
     this.clock.start();
     this.loop();
@@ -142,12 +143,14 @@ export class AdventureGame {
       const modalLocked = this.ui.isModalOpen();
       const movementLocked = modalLocked || this.cinematic.isPlaying || this.chapterTransitioning;
 
-      // Exact screen-space axes. These vectors describe literal top/right of
-      // the display on the horizontal floor plane for the current camera yaw.
+      // Literal screen-space movement. The horizontal projection of the camera
+      // position is (sin(yaw), cos(yaw)); therefore top-of-screen on the floor
+      // is its exact opposite. This makes W/Up invariant under camera rotation.
       const screenUp = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).normalize();
       const screenRight = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).normalize();
       this.player.update(dt, this.controls, this.world.colliders, screenUp, screenRight, movementLocked);
       this.world.update(dt);
+      for (const npc of this.npcVisuals) npc.update(dt, 0, false, false);
 
       const zone = this.world.zoneForPosition(this.player.position);
       if (zone !== this.lastZone) {
@@ -197,6 +200,37 @@ export class AdventureGame {
     this.renderer.render(this.scene, this.camera);
     this.controls.endFrame();
   };
+
+  private replaceLegacyNpcVisuals(): void {
+    const specs: Array<{ id: string; accent: string; helmet: string; shirt: string }> = [
+      { id: 'laura-control', accent: '#4A94D0', helmet: '#F4C542', shirt: '#173A55' },
+      { id: 'mateo', accent: '#D6A82F', helmet: '#F4C542', shirt: '#34434D' },
+      { id: 'andres', accent: '#55B985', helmet: '#E7EDF0', shirt: '#284638' },
+      { id: 'daniela', accent: '#79BDEE', helmet: '#F4C542', shirt: '#25425A' },
+      { id: 'camilo', accent: '#E89A58', helmet: '#E7EDF0', shirt: '#4A392E' },
+      { id: 'laura-capa', accent: '#A98AE0', helmet: '#F4C542', shirt: '#3A3151' }
+    ];
+
+    for (const spec of specs) {
+      const legacy = this.scene.getObjectByName(spec.id);
+      if (!legacy) continue;
+      legacy.visible = false;
+
+      const engineer = new EngineerAvatar({
+        accent: spec.accent,
+        helmet: spec.helmet,
+        shirt: spec.shirt,
+        vest: '#E8B82D',
+        pants: '#2B363F'
+      });
+      engineer.group.position.copy(legacy.getWorldPosition(new THREE.Vector3()));
+      engineer.group.rotation.y = legacy.getWorldQuaternion(new THREE.Quaternion()).setFromEuler
+        ? legacy.rotation.y
+        : 0;
+      this.scene.add(engineer.group);
+      this.npcVisuals.push(engineer);
+    }
+  }
 
   private async playChapterIntro(zone: ZoneId): Promise<void> {
     const sequence = CHAPTER_CINEMATICS[zone];
