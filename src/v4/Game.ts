@@ -5,6 +5,7 @@ import { Controls } from '../v3/Controls';
 import { CinematicDirector, type CinematicSequence } from '../v3/CinematicDirector';
 import type { GameProgress, PlayerProfile, ZoneId } from '../v3/types';
 import { V5ArtPass } from '../v5/ArtPass';
+import { V6AdventureLayer } from '../v6/AdventureLayer';
 import { PROLOGUE, V4_OPENING } from './content';
 import { V4Overlay } from './Overlay';
 import { V4Player } from './Player';
@@ -24,6 +25,7 @@ export class AdventureGameV4 {
   private player!: V4Player;
   private world!: V4World;
   private artPass!: V5ArtPass;
+  private premium!: V6AdventureLayer;
   private profile!: PlayerProfile;
   private running = false;
   private finished = false;
@@ -57,7 +59,7 @@ export class AdventureGameV4 {
   };
 
   constructor(private root: HTMLElement) {
-    this.root.classList.add('v4-root', 'v5-root');
+    this.root.classList.add('v4-root', 'v5-root', 'v6-root');
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -85,9 +87,10 @@ export class AdventureGameV4 {
     this.player = new V4Player(this.profile);
     this.world = new V4World(this.scene, this.ui, this.audio, this.progress, () => this.finish());
     this.artPass = new V5ArtPass(this.scene, this.renderer);
+    this.premium = new V6AdventureLayer(this.scene, this.ui, this.audio, this.progress);
 
-    this.ui.showToast('V5 · CARGANDO CAMPUS', 'Preparando arquitectura, vías, naturaleza y equipamiento industrial.', 'normal');
-    await Promise.all([this.player.init(), this.world.init(), this.artPass.init()]);
+    this.ui.showToast('V6 · PREPARANDO OPERACIÓN AURORA', 'Cargando campus, logística, exploración y sistemas de investigación.', 'normal');
+    await Promise.all([this.player.init(), this.world.init(), this.artPass.init(), this.premium.init()]);
 
     this.scene.add(this.player.group);
     this.player.position.set(0, 0, 6);
@@ -96,8 +99,6 @@ export class AdventureGameV4 {
     this.positionCamera(true, 0);
     this.overlay.update(this.progress, null);
 
-    // Start the render loop before cinematics. The timer remains stopped because
-    // startedAt is null, but camera choreography, ambient workers and overlays animate.
     this.running = true;
     this.clock.start();
     this.loop();
@@ -107,9 +108,9 @@ export class AdventureGameV4 {
 
     this.progress.startedAt = performance.now();
     this.progress.objective = 'Recibe el briefing de Calidad';
-    this.progress.objectiveDetail = 'Habla con Laura y retira el escáner EI. Después explora el muelle de Recepción.';
+    this.progress.objectiveDetail = 'Habla con Laura, retira el escáner EI y reconstruye la desviación área por área. Explora: hay evidencia opcional fuera del camino crítico.';
     this.ui.setObjective(this.progress.objective, this.progress.objectiveDetail);
-    this.ui.showToast('OPERACIÓN AURORA · V5', 'Campus visual cargado. Sigue la señalización y utiliza el entorno como parte de la investigación.', 'success');
+    this.ui.showToast('OPERACIÓN AURORA · V6', 'La planta está activa. Usa F cuando obtengas el escáner para detectar hallazgos opcionales.', 'success');
   }
 
   private configureScene(): void {
@@ -154,6 +155,7 @@ export class AdventureGameV4 {
       this.player.update(dt, this.controls, this.world.colliders, screenUp, screenRight, locked);
       this.world.update(dt);
       this.artPass.update(dt);
+      this.premium.update(dt, this.player.position);
 
       const zone = this.world.zoneForPosition(this.player.position);
       if (zone !== this.lastZone) {
@@ -187,10 +189,10 @@ export class AdventureGameV4 {
   };
 
   private handleGlobalControls(): void {
-    // Map and close controls must work even while the map itself has movement locked.
     if (!this.cinematic.isPlaying && !this.transitionLock && !this.ui.isModalOpen()) {
       if (this.controls.consumePress('KeyQ', 'Tab')) this.overlay.toggleMap();
       if (this.controls.consumePress('KeyI') && !this.overlay.isMapOpen()) this.ui.toggleInventory(this.legacyProgress());
+      if (this.controls.consumePress('KeyF') && !this.overlay.isMapOpen()) this.premium.pulseScan(this.player.position);
       if (this.controls.consumePress('KeyM')) {
         const enabled = this.audio.toggle();
         this.ui.showToast('AUDIO', enabled ? 'Sonido activado.' : 'Sonido silenciado.');
@@ -223,6 +225,8 @@ export class AdventureGameV4 {
 
     const carryable = this.world.nearestCarryable(this.player.position);
     const interactable = this.world.nearestInteractable(this.player.position);
+    const premiumInteractable = this.premium.nearestInteractable(this.player.position);
+
     if (carryable) {
       const denied = this.pickupRequirement(carryable);
       this.overlay.setPrompt(denied ?? `Tomar · ${carryable.label}`);
@@ -233,6 +237,13 @@ export class AdventureGameV4 {
           this.player.playInteract();
           this.world.onPickup(carryable);
         }
+      }
+    } else if (premiumInteractable) {
+      this.overlay.setPrompt(premiumInteractable.label);
+      if (this.controls.consumePress('KeyE')) {
+        this.player.playInteract();
+        this.audio.interact();
+        void this.premium.interact(premiumInteractable);
       }
     } else if (interactable) {
       this.overlay.setPrompt(interactable.label);
@@ -272,7 +283,7 @@ export class AdventureGameV4 {
     };
     const entry = data[zone];
     if (!entry) return null;
-    return { id: `v5-${zone}`, skippable: true, shots: [{ duration: 4.2, position: entry.pos, target: entry.target, kicker: 'OPERACIÓN AURORA · V5', title: entry.title, caption: entry.caption }] };
+    return { id: `v6-${zone}`, skippable: true, shots: [{ duration: 4.2, position: entry.pos, target: entry.target, kicker: 'OPERACIÓN AURORA · V6', title: entry.title, caption: entry.caption }] };
   }
 
   private handleCameraInput(dt: number): void {
@@ -323,10 +334,11 @@ export class AdventureGameV4 {
     this.finished = true;
     this.progress.completedAt = performance.now();
     this.overlay.setPrompt(null);
+    const exploration = this.progress.flags.has('v6-explorer-bonus') ? ' Además completaste la exploración sistémica del campus.' : '';
     this.overlay.showResult(
       this.progress,
       'MISIÓN CERRADA',
-      `${this.profile.name}, cerraste la cadena desde recepción hasta CAPA. La simulación validó decisiones sobre trazabilidad, interlocks, metrología, LOTO y liberación de despacho antes de proponer una acción sistémica.`
+      `${this.profile.name}, cerraste la cadena desde recepción hasta CAPA. La simulación validó decisiones sobre trazabilidad, interlocks, metrología, LOTO y liberación de despacho antes de proponer una acción sistémica.${exploration}`
     );
   }
 
