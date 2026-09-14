@@ -44,6 +44,11 @@ export class Player {
       this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 12));
     }
 
+    if (!locked && !this.carriedId) {
+      if (input.isDown('KeyF')) this.animator.play('scan');
+      else if (input.isDown('KeyE')) this.animator.play('interact');
+    }
+
     this.animator.setLocomotion(moving, sprint, Boolean(this.carriedId));
     this.animator.update(dt);
   }
