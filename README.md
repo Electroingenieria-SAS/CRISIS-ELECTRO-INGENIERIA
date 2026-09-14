@@ -1,70 +1,39 @@
-# CRISIS ELECTRO-INGENIERÍA
+# Crisis en Electroingeniería — Vertical Slice 01
 
-Escape room / dungeon RPG 3D para navegador, ambientado en una crisis operativa de **Electroingeniería S.A.S.**. La experiencia combina exploración cenital/isométrica con retos de trazabilidad, no conformidades, análisis de causa raíz y acciones correctivas.
+Primera entrega jugable de un escape room / dungeon RPG 3D para navegador.
 
-## Vertical Slice 01
+## Qué incluye
 
-La primera entrega incluye:
-
-- Dungeon 3D cenital/isométrico con assets KayKit.
-- Personaje `Knight` animado: idle, caminar, correr e interactuar.
+- Dungeon 3D cenital/isométrico construido con assets KayKit.
+- Personaje Knight animado (idle, caminar, correr e interactuar).
 - Cámara ortográfica con seguimiento suave.
-- Colisiones y puertas/rejas condicionadas por progreso.
-- Tres evidencias de trazabilidad inspeccionables como documentos.
+- Colisiones y puertas/rejas con requisitos.
+- Tres evidencias de trazabilidad que se consultan como documentos.
 - Cámara de riesgo con penalización de tiempo.
-- Guardián de Calidad (`Skeleton Warrior`) con reto de trazabilidad.
-- Llave de Calidad y segunda puerta bloqueada.
-- Reto final de causa raíz + selección de acción correctiva.
-- Cronómetro continuo, registro de errores, objetivo dinámico, HUD y pantalla de resultados.
+- Guardián de Calidad (Skeleton Warrior) con reto de trazabilidad.
+- Llave de Calidad y segunda puerta.
+- Reto final de causa raíz + acción correctiva.
+- Cronómetro continuo (también mientras se leen documentos), errores, objetivo dinámico, HUD y pantalla de resultados.
 
-## Stack
+## Ejecutar
 
-- **Three.js** para renderizado 3D y animación.
-- **TypeScript** para la lógica del juego.
-- **Vite** para desarrollo y build.
-- **Vercel** como destino de despliegue.
+Requiere Node.js 20+. En Windows puedes hacer doble clic en `INICIAR_JUEGO.bat`; instalará dependencias la primera vez y abrirá el navegador.
 
-## Requisitos
-
-Vite 8 requiere Node.js `20.19+` o `22.12+`. El proyecto declara Node.js `>=20.19.0` y deja `.nvmrc` en Node 22.
-
-## Ejecutar localmente
-
-En Windows puedes usar:
-
-```text
-INICIAR_JUEGO.bat
-```
-
-O manualmente:
+Ejecución manual:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Vite mostrará la URL local, normalmente `http://localhost:5173`.
+Abrir la URL que muestre Vite (normalmente http://localhost:5173).
 
 ## Build de producción
 
 ```bash
-npm install
 npm run build
 npm run preview
 ```
-
-La salida estática queda en `dist/`.
-
-## Despliegue en Vercel
-
-El repositorio incluye `vercel.json`. En Vercel basta con importar este repositorio; la configuración esperada es:
-
-- Framework: `Vite`
-- Install command: `npm install`
-- Build command: `npm run build`
-- Output directory: `dist`
-
-No se requieren variables de entorno en esta primera versión.
 
 ## Controles
 
@@ -74,42 +43,25 @@ No se requieren variables de entorno en esta primera versión.
 
 ## Arquitectura
 
-```text
-src/
-├── main.ts
-├── styles.css
-└── game/
-    ├── AssetLibrary.ts
-    ├── Game.ts
-    ├── Input.ts
-    ├── Player.ts
-    ├── UI.ts
-    ├── World.ts
-    └── types.ts
+- `src/game/Game.ts`: bucle principal, renderer, cámara, tiempo y finalización.
+- `src/game/Player.ts`: movimiento, colisión, rotación y AnimationMixer.
+- `src/game/World.ts`: mapa, props, puertas, puzzles, evidencias y guardián.
+- `src/game/UI.ts`: HUD, documentos, diálogos, preguntas y resultados.
+- `src/game/AssetLibrary.ts`: caché y clonado de GLTF/GLB.
 
-public/assets/
-└── kaykit + licencias
-```
+## Licencias
 
-- `Game.ts`: renderer, cámara, reloj y ciclo principal.
-- `Player.ts`: movimiento, colisiones, orientación y AnimationMixer.
-- `World.ts`: dungeon, props, puertas, puzzles, evidencias y guardián.
-- `UI.ts`: HUD, documentos, diálogos, preguntas y resultados.
-- `AssetLibrary.ts`: carga, caché y clonado de GLTF/GLB.
-
-## Assets y licencias
-
-Los assets KayKit incluidos provienen de los paquetes suministrados para este proyecto y están bajo licencia **CC0**. Las licencias originales están conservadas en `public/assets/licenses/`.
+Los assets KayKit incluidos provienen de los ZIP entregados para el proyecto y están licenciados CC0. Se conservaron las licencias originales en `public/assets/licenses/`.
 
 Three.js y Vite se distribuyen bajo licencia MIT.
 
-## Roadmap inmediato
+## Siguiente iteración propuesta
 
-1. Inventario visual de evidencias.
-2. Ishikawa como puzzle espacial de seis categorías.
-3. Secuencia completa de 5 Porqués.
-4. Cofres, mecanismos, NPC y eventos narrativos adicionales.
-5. Múltiples equipos, sesiones y ranking mediante Supabase.
+1. Diseñador de niveles basado en JSON/Tiled o editor propio.
+2. Inventario visual de evidencias con drag & drop.
+3. Ishikawa como puzzle espacial de 6 pedestales.
+4. Secuencia completa de 5 Porqués.
+5. Múltiples equipos y ranking vía Supabase.
 6. Panel de Game Master y eventos en tiempo real.
-7. QR físicos para pruebas híbridas dentro de la empresa.
-8. Audio, partículas, transiciones y cinemáticas.
+7. QR físicos para pistas externas.
+8. Audio, partículas, cinemáticas y transición de batalla/reto.
