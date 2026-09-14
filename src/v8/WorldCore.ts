@@ -4,10 +4,12 @@ import type { Carryable, Collider, DropSocket, WorldAction, ZoneId } from './typ
 import { IndustrialKit, INDUSTRIAL_COLORS as C } from './visual/IndustrialKit';
 import { WarehouseZone } from './zones/WarehouseZone';
 import { ProductionZone } from './zones/ProductionZone';
+import { QualityZone } from './zones/QualityZone';
 
 /**
  * Clean V8 world composition. Reconstructed sectors own their geometry and
- * gameplay affordances. Provisional sectors remain simple until replaced.
+ * gameplay affordances. Provisional sectors stay intentionally simple until
+ * their replacement module is ready.
  */
 export class World {
   readonly group = new THREE.Group();
@@ -22,6 +24,7 @@ export class World {
   private readonly rotators: THREE.Object3D[] = [];
   private warehouse!: WarehouseZone;
   private production!: ProductionZone;
+  private quality!: QualityZone;
   private clock = 0;
 
   constructor(scene: THREE.Scene) {
@@ -35,7 +38,7 @@ export class World {
     this.buildControl();
     this.composeWarehouse();
     this.composeProduction();
-    this.buildQualityProvisional();
+    this.composeQuality();
     this.buildMaintenanceProvisional();
     this.buildDispatchProvisional();
     this.buildCapaProvisional();
@@ -46,6 +49,7 @@ export class World {
     this.clock += dt;
     this.warehouse?.update(dt);
     this.production?.update(dt);
+    this.quality?.update(dt);
     for (const rotor of this.rotators) rotor.rotation.y += dt * 0.72;
     for (const marker of this.localMarkers) {
       marker.position.y = Number(marker.userData.baseY ?? 2.5) + Math.sin(this.clock * 2.4 + Number(marker.userData.phase ?? 0)) * 0.075;
@@ -130,6 +134,9 @@ export class World {
     this.warehouse = new WarehouseZone();
     this.warehouse.init();
     this.group.add(this.warehouse.group);
+    for (const action of this.warehouse.actions) {
+      if (!action.object.parent) this.warehouse.group.add(action.object);
+    }
     this.colliders.push(...this.warehouse.colliders);
     this.actions.push(...this.warehouse.actions);
     this.scannables.push(...this.warehouse.scannables);
@@ -141,8 +148,24 @@ export class World {
     this.production = new ProductionZone();
     this.production.init();
     this.group.add(this.production.group);
+    for (const action of this.production.actions) {
+      if (!action.object.parent) this.production.group.add(action.object);
+    }
     this.colliders.push(...this.production.colliders);
     this.actions.push(...this.production.actions);
+  }
+
+  private composeQuality(): void {
+    this.quality = new QualityZone();
+    this.quality.init();
+    this.group.add(this.quality.group);
+    for (const action of this.quality.actions) {
+      if (!action.object.parent) this.quality.group.add(action.object);
+    }
+    this.colliders.push(...this.quality.colliders);
+    this.actions.push(...this.quality.actions);
+    for (const [id, value] of this.quality.carryables) this.carryables.set(id, value);
+    for (const [id, value] of this.quality.sockets) this.sockets.set(id, value);
   }
 
   private buildTerrain(): void {
@@ -206,20 +229,6 @@ export class World {
 
     const scanner = this.controlTerminal(3.6, -2.2, C.blue, 'ESCÁNER EI');
     this.addAction('scanner-terminal', 'Retirar Escáner EI', scanner, 2.0);
-  }
-
-  private buildQualityProvisional(): void {
-    this.openBuilding(24, -28, 26, 22, 0x5287b7, 'LABORATORIO DE CALIDAD');
-    const block = this.masterBlock(15, -28);
-    this.carryables.set('master-block', { id: 'master-block', label: 'Patrón maestro 50,00 mm', object: block, radius: 2.0, home: [15, 0, -28] });
-
-    const positions: Array<[number, number]> = [[19, -21], [26, -21], [33, -21]];
-    positions.forEach(([x, z], index) => {
-      const gauge = this.gaugeStation(x, z, index + 1);
-      this.sockets.set(`gauge-${index + 1}`, { id: `gauge-${index + 1}`, label: `Banco M-0${index + 1}`, object: gauge, radius: 2.4 });
-      const tag = this.controlTerminal(x, -34.5, 0x5287b7, `M-0${index + 1}`);
-      this.addAction(`tag-gauge-${index + 1}`, `Retirar de servicio M-0${index + 1}`, tag, 1.8);
-    });
   }
 
   private buildMaintenanceProvisional(): void {
@@ -361,37 +370,6 @@ export class World {
     const sign = this.kit.sign(label, 1.35, 0.28, '#f3c83f', '#17232a', '#173346');
     sign.position.set(0, 2.35, 0.1);
     group.add(stem, panel, screen, sign);
-    this.group.add(group);
-    return group;
-  }
-
-  private masterBlock(x: number, z: number): THREE.Group {
-    const group = new THREE.Group();
-    group.position.set(x, 0, z);
-    const pedestal = this.kit.box(1.15, 0.82, 1.15, this.kit.materials.steelDark);
-    pedestal.position.y = 0.41;
-    const block = this.kit.box(0.72, 0.5, 0.72, this.kit.materials.blue);
-    block.position.y = 1.08;
-    const sign = this.kit.sign('50,00 mm', 1.3, 0.3, '#173346', '#ffffff', '#55b985');
-    sign.position.set(0, 1.65, 0);
-    group.add(pedestal, block, sign);
-    this.group.add(group);
-    return group;
-  }
-
-  private gaugeStation(x: number, z: number, number: number): THREE.Group {
-    const group = new THREE.Group();
-    group.position.set(x, 0, z);
-    const bench = this.kit.box(2.5, 0.16, 1.7, this.kit.materials.steel);
-    bench.position.y = 0.92;
-    const body = this.kit.box(1.2, 1.3, 0.75, this.kit.materials.navy);
-    body.position.set(0, 1.7, 0);
-    const screenMaterial = new THREE.MeshStandardMaterial({ color: 0x4e88a7, emissive: 0x4e88a7, emissiveIntensity: 0.22, roughness: 0.28 });
-    const display = this.kit.box(0.82, 0.42, 0.025, screenMaterial, false, false);
-    display.position.set(0, 1.88, 0.39);
-    const sign = this.kit.sign(`M-0${number}`, 1.3, 0.3, '#173346', '#ffffff', '#7eb7ff');
-    sign.position.set(0, 2.6, 0);
-    group.add(bench, body, display, sign);
     this.group.add(group);
     return group;
   }
