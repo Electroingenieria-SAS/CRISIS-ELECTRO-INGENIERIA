@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { CharacterAnimator, type CharacterAction } from './animation/CharacterAnimator';
+import { HeroCharacter } from './characters/HeroCharacter';
 import type { Collider, PlayerProfile } from './types';
 import type { Input } from './Input';
-import { CharacterFactory } from './visual/CharacterFactory';
 
 export class Player {
   readonly group = new THREE.Group();
@@ -93,22 +93,13 @@ export class Player {
   }
 
   private buildAvatar(): void {
-    const factory = new CharacterFactory();
     const accent = new THREE.Color(this.profile.accent).getHex();
     const role = this.profile.role === 'quality' ? 'quality' : this.profile.role === 'process' ? 'production' : 'maintenance';
-    const model = factory.create({
+    const hero = new HeroCharacter();
+    const model = hero.create({
       name: this.profile.name || 'Investigador',
       role,
-      accent,
-      skin: 0xd8a27e,
-      hair: 0x382a25,
-      eye: 0x4b6f7f,
-      hairStyle: 'side',
-      helmet: true,
-      glasses: true,
-      vest: true,
-      radio: true,
-      tablet: true
+      accent
     });
 
     this.visual = model.visual;
@@ -116,8 +107,8 @@ export class Player {
     this.animator = new CharacterAnimator({ ...model.rig, root: this.group, visual: this.visual });
 
     const shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(0.5, 24),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2, depthWrite: false })
+      new THREE.CircleGeometry(0.52, 28),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.19, depthWrite: false })
     );
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.015;
