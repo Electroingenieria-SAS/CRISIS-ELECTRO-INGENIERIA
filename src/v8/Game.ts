@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { CAPA_OPTIONS, GAUGE_READINGS, LOTO_ORDER, WAREHOUSE_SCANS } from './content';
+import { AudioSystem } from './Audio';
+import { CAPA_OPTIONS, GAUGE_READINGS, LOTO_ORDER, WAREHOUSE_DOCUMENT, WAREHOUSE_SCANS } from './content';
 import { Input } from './Input';
 import { Player } from './Player';
 import type { GameState, PlayerProfile, ZoneId } from './types';
@@ -13,6 +14,7 @@ export class CrisisGameV8 {
   private clock = new THREE.Clock();
   private input: Input;
   private ui: UI;
+  private audio = new AudioSystem();
   private world!: World;
   private player!: Player;
   private profile!: PlayerProfile;
@@ -24,6 +26,7 @@ export class CrisisGameV8 {
   private distance = 12.4;
   private cameraTarget = new THREE.Vector3();
   private timerAcc = 0;
+  private seenZones = new Set<ZoneId>(['control']);
 
   private state: GameState = {
     chapter: 0,
@@ -62,6 +65,8 @@ export class CrisisGameV8 {
   async boot(): Promise<void> {
     this.configureScene();
     this.profile = await this.ui.createProfile();
+    await this.audio.unlock();
+
     this.world = new World(this.scene);
     this.world.init();
     this.player = new Player(this.profile);
@@ -109,7 +114,15 @@ export class CrisisGameV8 {
     this.world.update(dt);
 
     if (this.started && !this.state.finished) {
-      this.state.zone = this.world.zoneFor(this.player.position);
+      const zone = this.world.zoneFor(this.player.position);
+      if (zone !== this.state.zone) {
+        this.state.zone = zone;
+        if (!this.seenZones.has(zone)) {
+          this.seenZones.add(zone);
+          void this.introZone(zone);
+        }
+      }
+
       if (!locked) this.handleInteraction();
       this.timerAcc += dt;
       if (!this.ui.isModalOpen() && this.timerAcc >= 0.1) {
@@ -150,7 +163,10 @@ export class CrisisGameV8 {
         this.ui.setPrompt(`Colocar en ${socket.label}`);
         if (this.input.consume('KeyE')) {
           const dropped = this.player.drop(this.world.group, this.world.socketPosition(socket.id));
-          if (dropped) this.resolvePlacement(dropped.id, socket.id);
+          if (dropped) {
+            this.audio.drop();
+            this.resolvePlacement(dropped.id, socket.id);
+          }
         }
       } else {
         this.ui.setPrompt('Transporta el elemento hasta una estación válida');
@@ -162,8 +178,10 @@ export class CrisisGameV8 {
     if (carryable) {
       this.ui.setPrompt(`Tomar · ${carryable.label}`);
       if (this.input.consume('KeyE')) {
-        this.player.pickup(carryable.object, carryable.id);
-        this.ui.toastMessage('OBJETO EN MANOS', carryable.label);
+        if (this.player.pickup(carryable.object, carryable.id)) {
+          this.audio.pickup();
+          this.ui.toastMessage('OBJETO EN MANOS', carryable.label);
+        }
       }
       return;
     }
@@ -171,15 +189,31 @@ export class CrisisGameV8 {
     const action = this.world.nearestAction(this.player.position);
     if (action) {
       this.ui.setPrompt(action.prompt);
-      if (this.input.consume('KeyE')) void this.resolveAction(action.id);
-    } else {
-      this.ui.setPrompt(null);
+      if (this.input.consume('KeyE')) {
+        this.audio.interact();
+        void this.resolveAction(action.id);
+      }
+      return;
     }
+
+    const scanTarget = this.world.nearestScan(this.player.position);
+    if (scanTarget && this.state.flags.has('scanner') && this.state.flags.has('warehouse-docs-reviewed') && this.state.chapter === 1) {
+      this.ui.setPrompt(scanTarget.prompt, 'F');
+      return;
+    }
+
+    this.ui.setPrompt(null);
   }
 
   private scan(): void {
     if (!this.state.flags.has('scanner')) {
+      this.audio.error();
       this.ui.toastMessage('SIN HERRAMIENTA', 'Necesitas retirar el Escáner EI en el Centro de Control.', 'danger');
+      return;
+    }
+    if (this.state.chapter === 1 && !this.state.flags.has('warehouse-docs-reviewed')) {
+      this.audio.error();
+      this.ui.toastMessage('FALTA CONTEXTO', 'Antes de interpretar etiquetas, revisa el Pedido, la Remisión y el criterio documental en Recepción.', 'danger');
       return;
     }
     const target = this.world.nearestScan(this.player.position);
@@ -189,12 +223,19 @@ export class CrisisGameV8 {
     }
     const data = WAREHOUSE_SCANS[target.id];
     if (!data) return;
+
+    const firstRead = !this.state.scans.has(target.id);
     this.state.scans.add(target.id);
-    this.state.score += this.state.scans.size <= 3 ? 45 : 0;
-    this.ui.toastMessage(data.title, `${data.detail} · ${data.result}`, target.id === 'pallet-b' ? 'danger' : 'success');
+    if (firstRead) this.state.score += 45;
+    this.audio.scan();
+    this.ui.toastMessage(data.title, `${data.detail} · ${data.result}`, 'normal');
+
     if (this.state.scans.size === 3 && !this.state.flags.has('warehouse-scanned')) {
       this.state.flags.add('warehouse-scanned');
-      this.setObjective('Aísla la revisión incorrecta', 'El Pallet B contiene CT-48 Rev. A. Cárgalo y llévalo físicamente a CUARENTENA.');
+      this.setObjective(
+        'Toma una decisión de segregación',
+        'Compara los tres registros contra PO-AUR-2417: CT-48 Rev. B, 24 unidades. Carga el pallet incompatible y llévalo a CUARENTENA.'
+      );
     }
   }
 
@@ -205,20 +246,37 @@ export class CrisisGameV8 {
       this.setObjective('Obtén la herramienta de trazabilidad', 'Retira el Escáner EI del terminal azul del Centro de Control.');
       return;
     }
+
     if (id === 'scanner-terminal') {
       if (!this.state.flags.has('briefed')) return this.locked('Primero recibe el briefing de Laura.');
       if (this.state.flags.has('scanner')) return;
       this.state.flags.add('scanner');
       this.state.chapter = 1;
       this.state.score += 75;
-      this.ui.toastMessage('HERRAMIENTA OBTENIDA', 'Escáner EI habilitado con F. Busca etiquetas en Recepción.', 'success');
-      this.setObjective('Reconstruye la entrada del material', 'Ve a Recepción/Almacén y usa F cerca de los tres pallets. Compara revisión, lote y evidencia de proveedor.');
+      this.audio.success();
+      this.ui.toastMessage('HERRAMIENTA OBTENIDA', 'Escáner EI habilitado con F.', 'success');
+      this.setObjective('Reconstruye la recepción', 'Ve a Recepción/Almacén. Habla con Mateo y revisa el expediente de recibo antes de escanear material.');
       return;
     }
+
     if (id === 'npc-mateo') {
-      await this.ui.dialogue('Mateo', 'Responsable de Almacén', 'Los tres pallets llegaron en fechas cercanas. El color de la caja no es evidencia: usa la etiqueta y el COA para decidir qué material pertenece al pedido.');
+      await this.ui.dialogue('Mateo', 'Responsable de Recepción', 'El turno recibió tres pallets próximos en fecha, pero pertenecen a condiciones distintas. Primero revisa el expediente de recibo. Después usa la etiqueta física para contrastar referencia, revisión, cantidad y COA.');
+      if (this.state.chapter === 1) this.setObjective('Revisa el expediente de recibo', 'La mesa documental junto a Mateo contiene Pedido, Remisión y criterio de segregación.');
       return;
     }
+
+    if (id === 'warehouse-docs') {
+      if (this.state.chapter !== 1) return this.locked('El expediente de recibo corresponde al capítulo de trazabilidad de entrada.');
+      if (!this.state.flags.has('scanner')) return this.locked('Retira primero el Escáner EI en Control.');
+      await this.ui.showEvidence(WAREHOUSE_DOCUMENT.title, WAREHOUSE_DOCUMENT.subtitle, WAREHOUSE_DOCUMENT.rows);
+      if (!this.state.flags.has('warehouse-docs-reviewed')) {
+        this.state.flags.add('warehouse-docs-reviewed');
+        this.state.score += 60;
+      }
+      this.setObjective('Audita los tres pallets', 'Acércate a A, B y C y pulsa F. El escáner entrega hechos; tú debes decidir cuál no cumple el pedido.');
+      return;
+    }
+
     if (id.startsWith('prod-sw-')) {
       if (this.state.chapter !== 2) return this.locked('Primero resuelve la trazabilidad de entrada.');
       const index = Number(id.split('-').pop());
@@ -231,11 +289,13 @@ export class CrisisGameV8 {
         this.state.score += 220;
         this.state.chapter = 3;
         this.state.flags.add('production-seal');
+        this.audio.success();
         this.ui.toastMessage('LÍNEA VALIDADA', 'Los cuatro interlocks están en condición segura.', 'success');
         this.setObjective('Comprueba el sistema de medición', 'Ve a Calidad. Toma el patrón maestro 50,00 mm y llévalo a los tres bancos metrológicos.');
       }
       return;
     }
+
     if (id.startsWith('tag-gauge-')) {
       if (this.state.chapter !== 3 || this.state.measured.size < 3) return this.locked('Primero mide el patrón en los tres bancos.');
       const gaugeId = `gauge-${id.split('-').pop()}`;
@@ -243,11 +303,13 @@ export class CrisisGameV8 {
         this.state.score += 240;
         this.state.chapter = 4;
         this.state.flags.add('quality-seal');
+        this.audio.success();
         this.ui.toastMessage('EQUIPO RETIRADO', 'M-02 excede ±0,05 mm y queda bloqueado.', 'success');
         this.setObjective('Asegura la intervención de mantenimiento', 'En Mantenimiento ejecuta LOTO: detener → aislar → bloquear/etiquetar → verificar energía cero.');
       } else this.penalty('Decisión metrológica incorrecta', 'Ese banco cumple el criterio ±0,05 mm.');
       return;
     }
+
     if (id.startsWith('loto-')) {
       if (this.state.chapter !== 4) return this.locked('La intervención LOTO se habilita después de cerrar Metrología.');
       const expected = LOTO_ORDER[this.state.lotoStep];
@@ -262,11 +324,13 @@ export class CrisisGameV8 {
         this.state.chapter = 5;
         this.state.flags.add('maintenance-seal');
         this.state.score += 170;
+        this.audio.success();
         this.ui.toastMessage('ENERGÍA CERO VERIFICADA', 'Intervención asegurada.', 'success');
         this.setObjective('Reconstruye la liberación de salida', 'En Despacho carga AUR-2401, AUR-2402 y AUR-2403 en las posiciones 1, 2 y 3 respectivamente.');
       } else this.ui.toastMessage('LOTO', `Paso ${this.state.lotoStep}/${LOTO_ORDER.length} validado.`, 'success');
       return;
     }
+
     if (id.startsWith('capa-')) {
       if (this.state.chapter !== 6) return this.locked('El Centro CAPA se resuelve después de cerrar Despacho.');
       const option = CAPA_OPTIONS[id];
@@ -277,19 +341,32 @@ export class CrisisGameV8 {
       }
       this.state.score += 420;
       this.state.finished = true;
+      this.audio.success();
       this.ui.showResult(this.state, 'CAUSA CONTROLADA', `${this.profile.name}, cerraste Operación Aurora con una acción sistémica: ${option.detail}`);
     }
   }
 
   private resolvePlacement(itemId: string, socketId: string): void {
-    if (itemId === 'pallet-b' && socketId === 'quarantine' && this.state.chapter === 1 && this.state.scans.size === 3) {
+    if (itemId.startsWith('pallet-') && socketId === 'quarantine' && this.state.chapter === 1 && this.state.scans.size === 3) {
+      if (itemId !== 'pallet-b') {
+        this.penalty(
+          'SEGREGACIÓN INCORRECTA',
+          itemId === 'pallet-a'
+            ? 'El Pallet A es CT-48 Rev. B y cumple el pedido. No debe inmovilizarse material conforme.'
+            : 'El Pallet C pertenece a otro pedido; no explica la desviación de Aurora.'
+        );
+        this.resetCarryable(itemId);
+        return;
+      }
       this.state.flags.add('warehouse-seal');
       this.state.chapter = 2;
-      this.state.score += 220;
-      this.ui.toastMessage('CUARENTENA CONFIRMADA', 'La Rev. A queda segregada sin afectar material conforme.', 'success');
+      this.state.score += 260;
+      this.audio.success();
+      this.ui.toastMessage('CUARENTENA CONFIRMADA', 'CT-48 Rev. A queda segregado antes de ingresar a Producción.', 'success');
       this.setObjective('Restablece la condición de proceso', 'Ve a Producción. Los cuatro interlocks deben quedar verdes; cada pulsador modifica dos condiciones.');
       return;
     }
+
     if (itemId === 'master-block' && socketId.startsWith('gauge-') && this.state.chapter === 3) {
       const data = GAUGE_READINGS[socketId];
       if (!data) return;
@@ -299,6 +376,7 @@ export class CrisisGameV8 {
       if (this.state.measured.size === 3) this.setObjective('Retira el instrumento no conforme', 'Compara los errores con ±0,05 mm y usa el terminal correspondiente para retirar un banco de servicio.');
       return;
     }
+
     if (itemId.startsWith('pkg-') && socketId.startsWith('dispatch-') && this.state.chapter === 5) {
       const expected: Record<string, string> = { 'pkg-2401': 'dispatch-1', 'pkg-2402': 'dispatch-2', 'pkg-2403': 'dispatch-3' };
       if (expected[itemId] !== socketId) {
@@ -312,25 +390,45 @@ export class CrisisGameV8 {
         this.state.chapter = 6;
         this.state.flags.add('dispatch-seal');
         this.state.score += 180;
+        this.audio.success();
         this.setObjective('Formula la CAPA definitiva', 'En el Centro CAPA evalúa las tres estrategias. Escoge la que controle el origen documental y bloquee la recurrencia.');
       }
       return;
     }
+
     this.penalty('UBICACIÓN NO VÁLIDA', 'Ese elemento no corresponde a esta estación.');
   }
 
   private carryableEnabled(id: string): boolean {
-    if (id === 'pallet-b') return this.state.chapter === 1 && this.state.scans.size === 3 && !this.state.flags.has('warehouse-seal');
+    if (id.startsWith('pallet-')) return this.state.chapter === 1 && this.state.scans.size === 3 && !this.state.flags.has('warehouse-seal');
     if (id === 'master-block') return this.state.chapter === 3;
     if (id.startsWith('pkg-')) return this.state.chapter === 5 && !this.state.dispatchPlaced.has(id);
     return false;
   }
 
   private socketRelevant(itemId: string, socketId: string): boolean {
-    if (itemId === 'pallet-b') return socketId === 'quarantine';
+    if (itemId.startsWith('pallet-')) return socketId === 'quarantine';
     if (itemId === 'master-block') return socketId.startsWith('gauge-');
     if (itemId.startsWith('pkg-')) return socketId.startsWith('dispatch-');
     return false;
+  }
+
+  private resetCarryable(id: string): void {
+    const item = this.world.carryables.get(id);
+    if (!item?.home) return;
+    this.world.group.attach(item.object);
+    item.object.position.set(item.home[0], item.home[1], item.home[2]);
+    item.object.rotation.set(0, 0, 0);
+    item.object.userData.carried = false;
+  }
+
+  private async introZone(zone: ZoneId): Promise<void> {
+    if (zone !== 'warehouse' || this.state.chapter !== 1) return;
+    await this.ui.chapterIntro(
+      'CAPÍTULO I · RECEPCIÓN Y ALMACÉN',
+      'La evidencia entra antes que la producción',
+      'Un COA vigente no convierte automáticamente un material en correcto. Contrasta el pedido, la revisión y la identidad física del lote antes de decidir qué puede continuar.'
+    );
   }
 
   private productionStatus(): string {
@@ -338,20 +436,28 @@ export class CrisisGameV8 {
     return labels.map((label, index) => `${label}:${this.state.production[index] ? 'OK' : 'NO'}`).join(' · ');
   }
 
-  private locked(message: string): void { this.ui.toastMessage('AÚN NO', message, 'danger'); }
+  private locked(message: string): void {
+    this.audio.error();
+    this.ui.toastMessage('AÚN NO', message, 'danger');
+  }
 
   private penalty(title: string, body: string): void {
     this.state.errors += 1;
     this.state.score = Math.max(0, this.state.score - 80);
     this.state.remainingSeconds = Math.max(0, this.state.remainingSeconds - 25);
+    this.audio.error();
     this.ui.toastMessage(title, body, 'danger');
   }
 
-  private setObjective(title: string, detail: string): void { this.state.objective = title; this.state.detail = detail; }
+  private setObjective(title: string, detail: string): void {
+    this.state.objective = title;
+    this.state.detail = detail;
+  }
 
   private failMission(): void {
     if (this.state.finished) return;
     this.state.finished = true;
+    this.audio.error();
     this.ui.showResult(this.state, 'VENTANA OPERATIVA AGOTADA', 'La investigación no alcanzó un cierre defendible. Repite siguiendo evidencia y evitando decisiones por intuición.');
   }
 
@@ -366,7 +472,11 @@ export class CrisisGameV8 {
     const target = new THREE.Vector3(this.player.position.x, 1.25, this.player.position.z);
     this.cameraTarget.lerp(target, 1 - Math.exp(-dt * 8));
     const horizontal = Math.cos(this.pitch) * this.distance;
-    const desired = new THREE.Vector3(this.cameraTarget.x + Math.sin(this.yaw) * horizontal, this.cameraTarget.y + Math.sin(this.pitch) * this.distance, this.cameraTarget.z + Math.cos(this.yaw) * horizontal);
+    const desired = new THREE.Vector3(
+      this.cameraTarget.x + Math.sin(this.yaw) * horizontal,
+      this.cameraTarget.y + Math.sin(this.pitch) * this.distance,
+      this.cameraTarget.z + Math.cos(this.yaw) * horizontal
+    );
     this.camera.position.lerp(desired, 1 - Math.exp(-dt * 7));
     this.camera.lookAt(this.cameraTarget);
   }
@@ -375,8 +485,13 @@ export class CrisisGameV8 {
     const target = new THREE.Vector3(this.player.position.x, 1.25, this.player.position.z);
     this.cameraTarget.copy(target);
     const horizontal = Math.cos(this.pitch) * this.distance;
-    const desired = new THREE.Vector3(target.x + Math.sin(this.yaw) * horizontal, target.y + Math.sin(this.pitch) * this.distance, target.z + Math.cos(this.yaw) * horizontal);
-    if (immediate) this.camera.position.copy(desired); else this.camera.position.lerp(desired, 1 - Math.exp(-dt * 7));
+    const desired = new THREE.Vector3(
+      target.x + Math.sin(this.yaw) * horizontal,
+      target.y + Math.sin(this.pitch) * this.distance,
+      target.z + Math.cos(this.yaw) * horizontal
+    );
+    if (immediate) this.camera.position.copy(desired);
+    else this.camera.position.lerp(desired, 1 - Math.exp(-dt * 7));
     this.camera.lookAt(target);
   }
 
