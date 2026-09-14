@@ -1,21 +1,22 @@
 import * as THREE from 'three';
+import { CharacterAnimator, type CharacterAction, type CharacterRig } from './animation/CharacterAnimator';
 import type { Collider, PlayerProfile } from './types';
 import type { Input } from './Input';
 
 export class Player {
   readonly group = new THREE.Group();
   readonly position = this.group.position;
+
   private visual = new THREE.Group();
   private carrySocket = new THREE.Group();
   private carriedId: string | null = null;
   private carriedObject: THREE.Object3D | null = null;
-  private phase = 0;
-  private lastMoving = false;
+  private animator!: CharacterAnimator;
 
   constructor(private profile: PlayerProfile) {
     this.group.name = 'V8_PLAYER';
     this.buildAvatar();
-    this.carrySocket.position.set(0, 1.25, 0.78);
+    this.carrySocket.position.set(0, 1.42, 0.78);
     this.group.add(this.carrySocket);
   }
 
@@ -33,7 +34,7 @@ export class Player {
     movement.addScaledVector(screenUp, y).addScaledVector(screenRight, x);
     const moving = movement.lengthSq() > 0.001;
     const sprint = input.isDown('ShiftLeft', 'ShiftRight') && !this.carriedId;
-    const speed = (sprint ? 7.0 : 4.65) * (this.carriedId ? 0.78 : 1);
+    const speed = (sprint ? 7.15 : 4.7) * (this.carriedId ? 0.76 : 1);
 
     if (moving) {
       movement.normalize();
@@ -43,8 +44,12 @@ export class Player {
       this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 12));
     }
 
-    this.animate(dt, moving, sprint);
-    this.lastMoving = moving;
+    this.animator.setLocomotion(moving, sprint, Boolean(this.carriedId));
+    this.animator.update(dt);
+  }
+
+  playAction(action: Exclude<CharacterAction, null>): void {
+    this.animator.play(action);
   }
 
   getCarriedId(): string | null {
@@ -59,8 +64,9 @@ export class Player {
     this.carrySocket.attach(object);
     object.position.set(0, 0, 0);
     object.rotation.set(0, 0, 0);
-    object.scale.multiplyScalar(0.72);
+    object.scale.multiplyScalar(0.7);
     object.userData.carried = true;
+    this.playAction('pickup');
     return true;
   }
 
@@ -76,86 +82,114 @@ export class Player {
     object.userData.carried = false;
     this.carriedId = null;
     this.carriedObject = null;
+    this.playAction('drop');
     return { id, object };
   }
 
   private buildAvatar(): void {
     const accent = new THREE.Color(this.profile.accent);
-    const navy = new THREE.MeshStandardMaterial({ color: 0x173346, roughness: 0.68 });
-    const pants = new THREE.MeshStandardMaterial({ color: 0x2f3b43, roughness: 0.8 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xd6a078, roughness: 0.78 });
-    const yellow = new THREE.MeshStandardMaterial({ color: 0xf4c542, roughness: 0.52 });
-    const white = new THREE.MeshStandardMaterial({ color: 0xeaf3f5, roughness: 0.44, emissive: 0x7bb7ca, emissiveIntensity: 0.12 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x111a20, roughness: 0.78 });
-    const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5, emissive: accent, emissiveIntensity: 0.08 });
+    const mats = {
+      navy: this.mat(0x173346, 0.68, 0.04),
+      pants: this.mat(0x2e3940, 0.82, 0.02),
+      skin: this.mat(0xd6a078, 0.76, 0.0),
+      yellow: this.mat(0xf4c542, 0.52, 0.02),
+      reflective: this.mat(0xeaf3f5, 0.38, 0.08, 0x7bb7ca, 0.14),
+      dark: this.mat(0x10171b, 0.8, 0.06),
+      metal: this.mat(0x576870, 0.44, 0.55),
+      glass: this.mat(0x233f53, 0.18, 0.12),
+      accent: new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5, metalness: 0.04, emissive: accent, emissiveIntensity: 0.08 })
+    };
 
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.65, 4, 10), navy);
-    torso.position.y = 1.45;
-    torso.scale.z = 0.68;
-    this.visual.add(torso);
+    const torsoRig = new THREE.Group();
+    torsoRig.name = 'torsoRig';
+    torsoRig.position.set(0, 1.18, 0);
+    this.visual.add(torsoRig);
 
-    const vest = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.7, 0.44), yellow);
-    vest.position.set(0, 1.45, 0);
-    this.visual.add(vest);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.64, 5, 12), mats.navy);
+    torso.position.y = 0.34;
+    torso.scale.set(1.0, 1.0, 0.74);
+    torsoRig.add(torso);
 
-    for (const y of [1.35, 1.58]) {
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.81, 0.055, 0.46), white);
-      stripe.position.set(0, y, 0.01);
-      this.visual.add(stripe);
+    const vestFront = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.74, 0.16), mats.yellow);
+    vestFront.position.set(0, 0.36, 0.33);
+    vestFront.rotation.x = -0.03;
+    torsoRig.add(vestFront);
+
+    for (const y of [0.23, 0.49]) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.055, 0.18), mats.reflective);
+      stripe.position.set(0, y, 0.345);
+      torsoRig.add(stripe);
     }
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 8), skin);
-    head.position.y = 2.15;
-    this.visual.add(head);
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.11, 0.52), mats.dark);
+    belt.position.set(0, -0.02, 0.02);
+    torsoRig.add(belt);
+    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.08), mats.dark);
+    radio.position.set(-0.34, 0.58, 0.37);
+    torsoRig.add(radio);
+    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.22, 0.03), mats.accent);
+    badge.position.set(0.23, 0.58, 0.37);
+    torsoRig.add(badge);
 
-    const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.37, 0.22, 14), yellow);
-    helmet.position.y = 2.44;
-    this.visual.add(helmet);
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.055, 14), yellow);
-    brim.position.y = 2.34;
-    this.visual.add(brim);
+    const headRig = new THREE.Group();
+    headRig.name = 'headRig';
+    headRig.position.set(0, 1.06, 0.02);
+    torsoRig.add(headRig);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), mats.skin);
+    head.scale.set(0.9, 1.05, 0.92);
+    headRig.add(head);
 
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.07, 0.04), new THREE.MeshStandardMaterial({ color: 0x203a4b, roughness: 0.2 }));
-    visor.position.set(0, 2.18, 0.25);
-    this.visual.add(visor);
+    const earL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), mats.skin);
+    earL.position.set(-0.255, 0, 0);
+    const earR = earL.clone();
+    earR.position.x = 0.255;
+    headRig.add(earL, earR);
 
-    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.22, 0.025), accentMat);
-    badge.position.set(0.23, 1.58, 0.235);
-    this.visual.add(badge);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.56), mats.yellow);
+    helmet.position.y = 0.17;
+    helmet.scale.z = 0.94;
+    headRig.add(helmet);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.055, 0.46), mats.yellow);
+    brim.position.set(0, 0.06, 0.08);
+    headRig.add(brim);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.07, 0.045), mats.glass);
+    visor.position.set(0, -0.02, 0.255);
+    headRig.add(visor);
 
-    const makeArm = (x: number) => {
-      const arm = new THREE.Group();
-      arm.position.set(x, 1.65, 0);
-      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.58, 0.22), navy);
-      upper.position.y = -0.25;
-      arm.add(upper);
-      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.26, 0.2), skin);
-      hand.position.y = -0.67;
-      arm.add(hand);
-      this.visual.add(arm);
-      return arm;
-    };
-    const leftArm = makeArm(-0.5);
-    const rightArm = makeArm(0.5);
-    leftArm.name = 'leftArm';
-    rightArm.name = 'rightArm';
+    const shoulderL = this.buildArm(-1, mats.navy, mats.skin, mats.dark);
+    const shoulderR = this.buildArm(1, mats.navy, mats.skin, mats.dark);
+    torsoRig.add(shoulderL.root, shoulderR.root);
 
-    const makeLeg = (x: number) => {
-      const leg = new THREE.Group();
-      leg.position.set(x, 1.0, 0);
-      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.76, 0.31), pants);
-      upper.position.y = -0.35;
-      leg.add(upper);
-      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.43), dark);
-      boot.position.set(0, -0.82, 0.05);
-      leg.add(boot);
-      this.visual.add(leg);
-      return leg;
-    };
-    const leftLeg = makeLeg(-0.2);
-    const rightLeg = makeLeg(0.2);
-    leftLeg.name = 'leftLeg';
-    rightLeg.name = 'rightLeg';
+    const hipL = this.buildLeg(-1, mats.pants, mats.dark, mats.metal);
+    const hipR = this.buildLeg(1, mats.pants, mats.dark, mats.metal);
+    this.visual.add(hipL.root, hipR.root);
+
+    const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.7, 0.22), mats.dark);
+    backpack.position.set(0, 1.52, -0.33);
+    backpack.rotation.x = 0.08;
+    this.visual.add(backpack);
+    const backpackBand = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.235), mats.yellow);
+    backpackBand.position.set(0, 1.55, -0.35);
+    this.visual.add(backpackBand);
+
+    const scanner = new THREE.Group();
+    scanner.name = 'handScanner';
+    const scannerBody = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.28, 0.11), mats.dark);
+    const scannerScreen = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.12, 0.012), mats.accent);
+    scannerScreen.position.set(0, 0.045, 0.061);
+    scanner.add(scannerBody, scannerScreen);
+    scanner.position.set(0, -0.34, 0.16);
+    scanner.rotation.x = -0.4;
+    shoulderR.elbow.add(scanner);
+    scanner.visible = false;
+
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.48, 24),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false })
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.015;
+    this.group.add(shadow);
 
     this.visual.traverse((node) => {
       if (node instanceof THREE.Mesh) {
@@ -163,21 +197,73 @@ export class Player {
         node.receiveShadow = true;
       }
     });
+    shadow.castShadow = false;
+    shadow.receiveShadow = false;
     this.group.add(this.visual);
+
+    const rig: CharacterRig = {
+      root: this.group,
+      visual: this.visual,
+      torso: torsoRig,
+      head: headRig,
+      leftShoulder: shoulderL.root,
+      rightShoulder: shoulderR.root,
+      leftElbow: shoulderL.elbow,
+      rightElbow: shoulderR.elbow,
+      leftHip: hipL.root,
+      rightHip: hipR.root,
+      leftKnee: hipL.knee,
+      rightKnee: hipR.knee,
+      scanner
+    };
+    this.animator = new CharacterAnimator(rig);
   }
 
-  private animate(dt: number, moving: boolean, sprinting: boolean): void {
-    this.phase += dt * (moving ? (sprinting ? 10.2 : 7.2) : 2.0);
-    const leftLeg = this.visual.getObjectByName('leftLeg');
-    const rightLeg = this.visual.getObjectByName('rightLeg');
-    const leftArm = this.visual.getObjectByName('leftArm');
-    const rightArm = this.visual.getObjectByName('rightArm');
-    const target = moving ? Math.sin(this.phase) * (sprinting ? 0.65 : 0.42) : 0;
-    if (leftLeg) leftLeg.rotation.x = THREE.MathUtils.lerp(leftLeg.rotation.x, target, 0.22);
-    if (rightLeg) rightLeg.rotation.x = THREE.MathUtils.lerp(rightLeg.rotation.x, -target, 0.22);
-    if (leftArm) leftArm.rotation.x = THREE.MathUtils.lerp(leftArm.rotation.x, -target * 0.7, 0.2);
-    if (rightArm) rightArm.rotation.x = THREE.MathUtils.lerp(rightArm.rotation.x, target * 0.7, 0.2);
-    this.visual.position.y = moving ? Math.abs(Math.sin(this.phase * 2)) * 0.025 : Math.sin(this.phase) * 0.006;
+  private buildArm(side: -1 | 1, sleeve: THREE.Material, skin: THREE.Material, glove: THREE.Material): { root: THREE.Group; elbow: THREE.Group } {
+    const root = new THREE.Group();
+    root.position.set(side * 0.5, 0.68, 0);
+    root.rotation.z = side * 0.04;
+
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.105, 0.38, 4, 8), sleeve);
+    upper.position.y = -0.25;
+    root.add(upper);
+
+    const elbow = new THREE.Group();
+    elbow.position.set(0, -0.52, 0);
+    root.add(elbow);
+    const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.095, 0.34, 4, 8), skin);
+    forearm.position.y = -0.22;
+    elbow.add(forearm);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.17, 0.18), glove);
+    hand.position.set(0, -0.48, 0.02);
+    elbow.add(hand);
+    return { root, elbow };
+  }
+
+  private buildLeg(side: -1 | 1, pants: THREE.Material, boot: THREE.Material, sole: THREE.Material): { root: THREE.Group; knee: THREE.Group } {
+    const root = new THREE.Group();
+    root.position.set(side * 0.19, 1.03, 0);
+    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.48, 4, 8), pants);
+    thigh.position.y = -0.32;
+    root.add(thigh);
+
+    const knee = new THREE.Group();
+    knee.position.set(0, -0.67, 0);
+    root.add(knee);
+    const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.125, 0.42, 4, 8), pants);
+    shin.position.y = -0.28;
+    knee.add(shin);
+    const bootMesh = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.45), boot);
+    bootMesh.position.set(0, -0.58, 0.08);
+    knee.add(bootMesh);
+    const soleMesh = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.055, 0.47), sole);
+    soleMesh.position.set(0, -0.7, 0.095);
+    knee.add(soleMesh);
+    return { root, knee };
+  }
+
+  private mat(color: number, roughness: number, metalness: number, emissive?: number, emissiveIntensity = 0): THREE.MeshStandardMaterial {
+    return new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive: emissive ?? 0x000000, emissiveIntensity });
   }
 
   private collides(position: THREE.Vector3, colliders: Collider[]): boolean {
