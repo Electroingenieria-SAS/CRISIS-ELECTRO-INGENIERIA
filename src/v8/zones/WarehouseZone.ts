@@ -18,11 +18,7 @@ const C = {
   black: 0x161b1e
 };
 
-/**
- * Premium vertical slice for Recepción / Almacén.
- * This module OWNS the warehouse geometry and interactions. Nothing else should
- * draw a second warehouse on top of it.
- */
+/** Premium vertical slice for Recepción / Almacén. */
 export class WarehouseZone {
   readonly group = new THREE.Group();
   readonly colliders: Collider[] = [];
@@ -65,7 +61,6 @@ export class WarehouseZone {
     floor.receiveShadow = true;
     this.group.add(floor);
 
-    // Concrete apron at the front creates a clear receiving threshold.
     const apron = this.box(31.5, 0.1, 5.2, C.concrete, 0.95, 0.02);
     apron.position.set(-34, 0.03, 24.4);
     apron.receiveShadow = true;
@@ -87,7 +82,6 @@ export class WarehouseZone {
     right.position.x = -19;
     this.group.add(right);
 
-    // Structural portal frames, visible from the isometric camera without a roof.
     for (const x of [-47, -40.5, -34, -27.5, -21]) {
       const postA = new THREE.Mesh(new THREE.BoxGeometry(0.25, 4.8, 0.28), frameMat);
       postA.position.set(x, 2.4, -1.8);
@@ -98,7 +92,6 @@ export class WarehouseZone {
       this.group.add(postA, postB, beam);
     }
 
-    // Yellow perimeter stripe reads as industrial safety zoning, not a generic room.
     const stripeMat = new THREE.MeshBasicMaterial({ color: C.yellow });
     for (const z of [21.7, -1.25]) {
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(29, 0.025, 0.14), stripeMat);
@@ -117,7 +110,6 @@ export class WarehouseZone {
   }
 
   private buildReceivingOffice(): void {
-    // Small glazed desk instead of a floating terminal.
     const desk = this.box(5.4, 0.82, 2.3, 0x394950, 0.62, 0.18);
     desk.position.set(-44.8, 0.42, 4.3);
     desk.castShadow = true;
@@ -138,7 +130,6 @@ export class WarehouseZone {
     glowMat.emissiveIntensity = 0.22;
     this.group.add(glow);
 
-    // Document trays physically communicate that this station is about evidence.
     for (let i = 0; i < 3; i++) {
       const sheet = this.box(0.85, 0.025, 0.58, 0xf0eee3, 0.88, 0);
       sheet.position.set(-43.0 + i * 0.24, 1.0 + i * 0.025, 4.35 - i * 0.06);
@@ -176,7 +167,8 @@ export class WarehouseZone {
       door.add(header);
       const bumperL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.2, 0.5), rubberMat);
       bumperL.position.set(-3.25, 0.62, 0.25);
-      const bumperR = bumperL.clone(); bumperR.position.x = 3.25;
+      const bumperR = bumperL.clone();
+      bumperR.position.x = 3.25;
       door.add(bumperL, bumperR);
       this.group.add(door);
       this.sign(`MUELLE 0${index + 1}`, new THREE.Vector3(x, 3.42, -1.92), C.yellow, 2.35);
@@ -184,17 +176,15 @@ export class WarehouseZone {
   }
 
   private buildStorageRacks(): void {
-    // Repeated low-poly rack system: one geometry, shared materials.
     const uprightGeo = new THREE.BoxGeometry(0.16, 3.5, 0.16);
     const beamGeo = new THREE.BoxGeometry(4.1, 0.14, 0.18);
     const uprightMat = this.mat(0x31506a, 0.55, 0.3);
     const beamMat = this.mat(C.yellowDark, 0.58, 0.22);
     const shelfMat = this.mat(0x6b7578, 0.76, 0.24);
 
-    const buildRack = (x: number, z: number, rotation = 0) => {
+    const buildRack = (x: number, z: number) => {
       const rack = new THREE.Group();
       rack.position.set(x, 0, z);
-      rack.rotation.y = rotation;
       for (const dx of [-1.95, 1.95]) {
         for (const dz of [-0.62, 0.62]) {
           const upright = new THREE.Mesh(uprightGeo, uprightMat);
@@ -221,7 +211,6 @@ export class WarehouseZone {
     buildRack(-22.7, 7.0);
     buildRack(-22.7, 12.0);
 
-    // Rack footprints are real collision, leaving a generous central inspection lane.
     this.colliders.push(
       { minX: -48.1, maxX: -43.3, minZ: 9.1, maxZ: 11.1 },
       { minX: -48.1, maxX: -43.3, minZ: 14.0, maxZ: 16.0 },
@@ -231,7 +220,6 @@ export class WarehouseZone {
   }
 
   private buildInspectionLane(): void {
-    // Central evidence lane with three positions and explicit raw labels.
     const lane = this.box(17.5, 0.035, 7.0, 0x46565d, 0.93, 0.02);
     lane.position.set(-34.3, 0.14, 9.4);
     this.group.add(lane);
@@ -240,10 +228,12 @@ export class WarehouseZone {
     for (const x of [-42.5, -34.2, -25.9]) {
       const outlineA = new THREE.Mesh(new THREE.BoxGeometry(5.7, 0.02, 0.08), lineMat);
       outlineA.position.set(x, 0.18, 6.65);
-      const outlineB = outlineA.clone(); outlineB.position.z = 12.1;
+      const outlineB = outlineA.clone();
+      outlineB.position.z = 12.1;
       const sideA = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 5.5), lineMat);
       sideA.position.set(x - 2.8, 0.18, 9.38);
-      const sideB = sideA.clone(); sideB.position.x = x + 2.8;
+      const sideB = sideA.clone();
+      sideB.position.x = x + 2.8;
       this.group.add(outlineA, outlineB, sideA, sideB);
     }
 
@@ -254,13 +244,15 @@ export class WarehouseZone {
     this.addScan('pallet-a', 'Escanear Pallet A', palletA, 4.2);
     this.addScan('pallet-b', 'Escanear Pallet B', palletB, 4.2);
     this.addScan('pallet-c', 'Escanear Pallet C', palletC, 4.2);
-    this.carryables.set('pallet-b', { id: 'pallet-b', label: 'Pallet B · L-0908-B', object: palletB, radius: 2.1 });
+
+    this.carryables.set('pallet-a', { id: 'pallet-a', label: 'Pallet A · L-0908-A', object: palletA, radius: 2.1, home: [-42.5, 0, 9.4] });
+    this.carryables.set('pallet-b', { id: 'pallet-b', label: 'Pallet B · L-0908-B', object: palletB, radius: 2.1, home: [-34.2, 0, 9.4] });
+    this.carryables.set('pallet-c', { id: 'pallet-c', label: 'Pallet C · L-0906-C', object: palletC, radius: 2.1, home: [-25.9, 0, 9.4] });
 
     this.sign('ÁREA DE INSPECCIÓN DE RECIBO', new THREE.Vector3(-34.2, 2.75, 15.5), C.yellow, 5.1);
   }
 
   private buildQuarantine(): void {
-    // Quarantine is a physical cage, not just a glowing circle.
     const x = -43.7;
     const z = 18.7;
     const floor = this.box(7.2, 0.08, 4.2, 0x5a3f42, 0.9, 0.02);
@@ -300,7 +292,6 @@ export class WarehouseZone {
   }
 
   private buildForklift(): void {
-    // Purpose-built low-poly forklift. Kept static for this slice to avoid physics cost.
     const g = new THREE.Group();
     g.position.set(-23.6, 0, 17.6);
     g.rotation.y = Math.PI * 0.12;
@@ -311,12 +302,14 @@ export class WarehouseZone {
     counter.position.set(0, 1.45, 0.72);
     const mast = this.box(0.18, 3.0, 0.18, C.steelDark, 0.4, 0.62);
     mast.position.set(-0.72, 1.55, -1.35);
-    const mast2 = mast.clone(); mast2.position.x = 0.72;
+    const mast2 = mast.clone();
+    mast2.position.x = 0.72;
     const cross = this.box(1.7, 0.18, 0.18, C.steelDark, 0.4, 0.62);
     cross.position.set(0, 2.6, -1.35);
     const forkL = this.box(0.14, 0.1, 2.2, C.steelDark, 0.38, 0.7);
     forkL.position.set(-0.48, 0.24, -2.2);
-    const forkR = forkL.clone(); forkR.position.x = 0.48;
+    const forkR = forkL.clone();
+    forkR.position.x = 0.48;
     g.add(body, counter, mast, mast2, cross, forkL, forkR);
 
     const wheelMat = this.mat(C.black, 0.92, 0.02);
@@ -349,7 +342,6 @@ export class WarehouseZone {
       this.group.add(post);
     }
 
-    // Directional arrows are geometry, so they remain crisp and cheap.
     for (const z of [17.0, 20.0, 23.0]) {
       const stem = this.box(0.16, 0.02, 1.8, C.yellow, 0.9, 0);
       stem.position.set(-34, 0.17, z);
@@ -366,12 +358,18 @@ export class WarehouseZone {
     const pants = this.mat(0x334149, 0.82, 0.02);
     const vest = this.mat(C.yellow, 0.58, 0.04);
     const skin = this.mat(0xd3a078, 0.78, 0);
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.84, 0.4), vest); torso.position.y = 1.45;
-    const reflective = this.box(0.78, 0.07, 0.43, C.white, 0.35, 0.05); reflective.position.y = 1.52;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), skin); head.position.y = 2.1;
-    const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.36, 0.2, 12), this.mat(C.yellow, 0.48, 0.05)); helmet.position.y = 2.37;
-    const legA = this.box(0.26, 0.85, 0.3, 0x334149, 0.82, 0.02); legA.position.set(-0.19, 0.65, 0);
-    const legB = legA.clone(); legB.position.x = 0.19;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.84, 0.4), vest);
+    torso.position.y = 1.45;
+    const reflective = this.box(0.78, 0.07, 0.43, C.white, 0.35, 0.05);
+    reflective.position.y = 1.52;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), skin);
+    head.position.y = 2.1;
+    const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.36, 0.2, 12), this.mat(C.yellow, 0.48, 0.05));
+    helmet.position.y = 2.37;
+    const legA = this.box(0.26, 0.85, 0.3, 0x334149, 0.82, 0.02);
+    legA.position.set(-0.19, 0.65, 0);
+    const legB = legA.clone();
+    legB.position.x = 0.19;
     g.add(torso, reflective, head, helmet, legA, legB);
     g.traverse((node) => { if (node instanceof THREE.Mesh) node.castShadow = true; });
     this.group.add(g);
@@ -391,7 +389,6 @@ export class WarehouseZone {
       box.castShadow = true;
       g.add(box);
     }
-    // White label plate makes scanner target visually obvious without exposing the answer.
     const tag = this.box(1.0, 0.42, 0.03, C.white, 0.42, 0);
     tag.position.set(0, 1.2, 0.70);
     g.add(tag);
