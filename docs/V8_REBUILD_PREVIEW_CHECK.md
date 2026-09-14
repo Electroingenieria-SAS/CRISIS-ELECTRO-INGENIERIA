@@ -1,0 +1,1 @@
+Current rebuild head should be used for preview validation before any merge to main.
