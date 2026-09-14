@@ -1,5 +1,6 @@
 import './styles.css';
 import './v3/styles.css';
+import './v3/cinematics.css';
 import { GameMasterApp } from './game/Multiplayer';
 import { AdventureGame } from './v3/Game';
 
