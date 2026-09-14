@@ -4,6 +4,7 @@ import { AdventureAudio } from '../v3/Audio';
 import { Controls } from '../v3/Controls';
 import { CinematicDirector, type CinematicSequence } from '../v3/CinematicDirector';
 import type { GameProgress, PlayerProfile, ZoneId } from '../v3/types';
+import { V5ArtPass } from '../v5/ArtPass';
 import { PROLOGUE, V4_OPENING } from './content';
 import { V4Overlay } from './Overlay';
 import { V4Player } from './Player';
@@ -22,6 +23,7 @@ export class AdventureGameV4 {
   private cinematic: CinematicDirector;
   private player!: V4Player;
   private world!: V4World;
+  private artPass!: V5ArtPass;
   private profile!: PlayerProfile;
   private running = false;
   private finished = false;
@@ -55,7 +57,7 @@ export class AdventureGameV4 {
   };
 
   constructor(private root: HTMLElement) {
-    this.root.classList.add('v4-root');
+    this.root.classList.add('v4-root', 'v5-root');
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -67,7 +69,7 @@ export class AdventureGameV4 {
     this.renderer.domElement.className = 'adv-canvas';
     this.root.appendChild(this.renderer.domElement);
 
-    this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 260);
+    this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 320);
     this.ui = new AdventureUI(root);
     this.overlay = new V4Overlay(root);
     this.controls = new Controls(this.renderer.domElement);
@@ -82,7 +84,11 @@ export class AdventureGameV4 {
 
     this.player = new V4Player(this.profile);
     this.world = new V4World(this.scene, this.ui, this.audio, this.progress, () => this.finish());
-    await Promise.all([this.player.init(), this.world.init()]);
+    this.artPass = new V5ArtPass(this.scene, this.renderer);
+
+    this.ui.showToast('V5 · CARGANDO CAMPUS', 'Preparando arquitectura, vías, naturaleza y equipamiento industrial.', 'normal');
+    await Promise.all([this.player.init(), this.world.init(), this.artPass.init()]);
+
     this.scene.add(this.player.group);
     this.player.position.set(0, 0, 6);
     this.player.onFootstep = () => this.audio.step();
@@ -103,15 +109,16 @@ export class AdventureGameV4 {
     this.progress.objective = 'Recibe el briefing de Calidad';
     this.progress.objectiveDetail = 'Habla con Laura y retira el escáner EI. Después explora el muelle de Recepción.';
     this.ui.setObjective(this.progress.objective, this.progress.objectiveDetail);
+    this.ui.showToast('OPERACIÓN AURORA · V5', 'Campus visual cargado. Sigue la señalización y utiliza el entorno como parte de la investigación.', 'success');
   }
 
   private configureScene(): void {
-    this.scene.background = new THREE.Color(0x98bfd3);
+    this.scene.background = new THREE.Color(0x9dbfce);
     this.scene.fog = new THREE.Fog(0x9bbdcb, 72, 170);
 
-    const hemi = new THREE.HemisphereLight(0xe5f3ff, 0x35483b, 2.3);
+    const hemi = new THREE.HemisphereLight(0xe5f3ff, 0x35483b, 2.05);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff2d8, 3.4);
+    const sun = new THREE.DirectionalLight(0xfff2d8, 3.15);
     sun.position.set(-38, 54, 22);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -123,7 +130,7 @@ export class AdventureGameV4 {
     sun.shadow.camera.far = 150;
     sun.shadow.bias = -0.00025;
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0x6aa8c9, 0.8);
+    const fill = new THREE.DirectionalLight(0x6aa8c9, 0.72);
     fill.position.set(55, 24, -45);
     this.scene.add(fill);
   }
@@ -146,6 +153,7 @@ export class AdventureGameV4 {
       const screenRight = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).normalize();
       this.player.update(dt, this.controls, this.world.colliders, screenUp, screenRight, locked);
       this.world.update(dt);
+      this.artPass.update(dt);
 
       const zone = this.world.zoneForPosition(this.player.position);
       if (zone !== this.lastZone) {
@@ -254,17 +262,17 @@ export class AdventureGameV4 {
   }
 
   private zoneSequence(zone: V4Zone): CinematicSequence | null {
-    const data: Partial<Record<V4Zone, { pos: [number,number,number]; target:[number,number,number]; title:string; caption:string }>> = {
-      warehouse: { pos:[-55,11,27], target:[-38,0,10], title:'CAPÍTULO I · TRAZABILIDAD DE ENTRADA', caption:'Escanea y transporta los tres contenedores. Libera únicamente lo que cumpla revisión y COA; lo demás debe quedar físicamente en cuarentena.' },
-      production: { pos:[-25,13,-52], target:[-8,0,-36], title:'CAPÍTULO II · INTERLOCKS', caption:'Cada pulsador altera dos condiciones. Comprende el patrón, deja las cuatro condiciones en verde y valida la línea antes de continuar.' },
-      quality: { pos:[18,13,-39], target:[32,0,-22], title:'CAPÍTULO III · METROLOGÍA', caption:'Transporta el patrón maestro a cada banco. El dato importante no es sólo la lectura: es el error contra un valor conocido y su criterio de aceptación.' },
-      maintenance: { pos:[57,12,31], target:[42,0,18], title:'CAPÍTULO IV · ENERGÍA CERO', caption:'La intervención sólo es segura si la secuencia LOTO conserva su orden. Un paso omitido reinicia el procedimiento.' },
-      dispatch: { pos:[-12,12,52], target:[4,0,38], title:'CAPÍTULO V · TRAZABILIDAD DE SALIDA', caption:'Carga cada caja en la posición indicada por serial. El producto correcto en el lugar equivocado sigue siendo una desviación de trazabilidad.' },
-      capa: { pos:[58,14,57], target:[43,0,43], title:'CAPÍTULO FINAL · CAPA', caption:'Cinco sellos operativos deben converger. La respuesta final debe transformar el sistema, no limitarse a pedir más atención a las personas.' }
+    const data: Partial<Record<V4Zone, { pos: [number, number, number]; target: [number, number, number]; title: string; caption: string }>> = {
+      warehouse: { pos: [-55, 11, 27], target: [-38, 0, 10], title: 'CAPÍTULO I · TRAZABILIDAD DE ENTRADA', caption: 'Escanea y transporta los tres contenedores. Libera únicamente lo que cumpla revisión y COA; lo demás debe quedar físicamente en cuarentena.' },
+      production: { pos: [-25, 13, -52], target: [-8, 0, -36], title: 'CAPÍTULO II · INTERLOCKS', caption: 'Cada pulsador altera dos condiciones. Comprende el patrón, deja las cuatro condiciones en verde y valida la línea antes de continuar.' },
+      quality: { pos: [18, 13, -39], target: [32, 0, -22], title: 'CAPÍTULO III · METROLOGÍA', caption: 'Transporta el patrón maestro a cada banco. El dato importante no es sólo la lectura: es el error contra un valor conocido y su criterio de aceptación.' },
+      maintenance: { pos: [57, 12, 31], target: [42, 0, 18], title: 'CAPÍTULO IV · ENERGÍA CERO', caption: 'La intervención sólo es segura si la secuencia LOTO conserva su orden. Un paso omitido reinicia el procedimiento.' },
+      dispatch: { pos: [-12, 12, 52], target: [4, 0, 38], title: 'CAPÍTULO V · TRAZABILIDAD DE SALIDA', caption: 'Carga cada caja en la posición indicada por serial. El producto correcto en el lugar equivocado sigue siendo una desviación de trazabilidad.' },
+      capa: { pos: [58, 14, 57], target: [43, 0, 43], title: 'CAPÍTULO FINAL · CAPA', caption: 'Cinco sellos operativos deben converger. La respuesta final debe transformar el sistema, no limitarse a pedir más atención a las personas.' }
     };
     const entry = data[zone];
     if (!entry) return null;
-    return { id:`v4-${zone}`, skippable:true, shots:[{ duration:4.2, position:entry.pos, target:entry.target, kicker:'OPERACIÓN AURORA', title:entry.title, caption:entry.caption }] };
+    return { id: `v5-${zone}`, skippable: true, shots: [{ duration: 4.2, position: entry.pos, target: entry.target, kicker: 'OPERACIÓN AURORA · V5', title: entry.title, caption: entry.caption }] };
   }
 
   private handleCameraInput(dt: number): void {
@@ -299,14 +307,14 @@ export class AdventureGameV4 {
 
   private legacyProgress(): GameProgress {
     const zoneMap: Record<V4Zone, ZoneId> = {
-      control:'control', warehouse:'warehouse', production:'production', quality:'quality', maintenance:'quality', dispatch:'dispatch', capa:'capa'
+      control: 'control', warehouse: 'warehouse', production: 'production', quality: 'quality', maintenance: 'quality', dispatch: 'dispatch', capa: 'capa'
     };
     return {
-      zone: zoneMap[this.progress.zone], objective:this.progress.objective, objectiveDetail:this.progress.objectiveDetail,
-      score:this.progress.score, errors:this.progress.errors, remainingSeconds:this.progress.remainingSeconds,
-      startedAt:this.progress.startedAt, completedAt:this.progress.completedAt,
-      scannedLots:new Set(), evidence:this.progress.evidence, inventory:this.progress.inventory,
-      productionSequence:[], causesFound:new Set(), ishikawaPlaced:new Map(), fiveWhysStep:0, flags:this.progress.flags
+      zone: zoneMap[this.progress.zone], objective: this.progress.objective, objectiveDetail: this.progress.objectiveDetail,
+      score: this.progress.score, errors: this.progress.errors, remainingSeconds: this.progress.remainingSeconds,
+      startedAt: this.progress.startedAt, completedAt: this.progress.completedAt,
+      scannedLots: new Set(), evidence: this.progress.evidence, inventory: this.progress.inventory,
+      productionSequence: [], causesFound: new Set(), ishikawaPlaced: new Map(), fiveWhysStep: 0, flags: this.progress.flags
     };
   }
 
