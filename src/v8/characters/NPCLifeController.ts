@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CharacterFactory, type CharacterModel, type CharacterRole } from '../visual/CharacterFactory';
+import { RiggedStaffCharacter, type RiggedStaffAsset, type RiggedStaffStyle } from './RiggedStaffCharacter';
 
 type Gesture = 'none' | 'explain' | 'point' | 'radio' | 'inspect' | 'tablet';
 
@@ -17,15 +18,17 @@ interface Agent {
   focus: boolean;
   baseYaw: number;
   attention: number;
+  rigged?: RiggedStaffAsset;
+  riggedActionUntil: number;
 }
 
 /**
- * Lightweight behavior layer for authored NPCs.
- * Keeps ambient staff alive without navmesh/AI overhead: breathing, natural
- * blink cadence, look-at, weight shifts and contextual hand gestures.
+ * NPC life system. Procedural actors are immediate fallbacks; each registered
+ * staff member is then promoted to a cached skeletal actor with real clips.
  */
 export class NPCLifeController {
   private readonly factory = new CharacterFactory();
+  private readonly riggedFactory = new RiggedStaffCharacter();
   private readonly agents: Agent[] = [];
   private clock = 0;
   private readonly playerWorld = new THREE.Vector3();
@@ -33,7 +36,7 @@ export class NPCLifeController {
 
   register(id: string, anchor: THREE.Object3D, model: CharacterModel, role: CharacterRole, phase = 0): void {
     model.root.userData.npcId = id;
-    this.agents.push({
+    const agent: Agent = {
       id,
       anchor,
       model,
@@ -46,8 +49,11 @@ export class NPCLifeController {
       nextGesture: 2.5 + this.seed(id, 1.7) * 4.0,
       focus: false,
       baseYaw: model.visual.rotation.y,
-      attention: 0
-    });
+      attention: 0,
+      riggedActionUntil: 0
+    };
+    this.agents.push(agent);
+    void this.promoteToRigged(agent);
   }
 
   setFocus(id: string, active: boolean): void {
@@ -55,9 +61,10 @@ export class NPCLifeController {
     if (!agent) return;
     agent.focus = active;
     if (active) {
-      agent.nextGesture = 0.2;
+      agent.nextGesture = 0.18;
       agent.gesture = 'none';
       agent.gestureTime = 0;
+      if (agent.rigged) this.playRiggedGesture(agent, true);
     }
   }
 
@@ -66,12 +73,84 @@ export class NPCLifeController {
     this.resolvePlayerPosition(playerPosition);
 
     for (const agent of this.agents) {
-      this.factory.animateIdle(agent.model, this.clock, agent.phase);
-      this.updateBlink(agent, dt);
-      this.updateAttention(agent, dt);
-      this.updateGesture(agent, dt);
-      this.updateWeightShift(agent);
+      if (agent.rigged) {
+        this.updateRigged(agent, dt);
+      } else {
+        this.factory.animateIdle(agent.model, this.clock, agent.phase);
+        this.updateBlink(agent, dt);
+        this.updateAttentionProcedural(agent, dt);
+        this.updateGestureProcedural(agent, dt);
+        this.updateWeightShift(agent);
+      }
     }
+  }
+
+  private async promoteToRigged(agent: Agent): Promise<void> {
+    try {
+      const rigged = await this.riggedFactory.load(this.styleFor(agent));
+      if (!agent.anchor.parent) return;
+      agent.anchor.remove(agent.model.root);
+      agent.anchor.add(rigged.root);
+      agent.rigged = rigged;
+      agent.baseYaw = 0;
+      agent.anchor.userData.riggedNPC = true;
+      agent.anchor.userData.npcId = agent.id;
+    } catch (error) {
+      console.warn(`[V8] Rigged NPC unavailable for ${agent.id}; using procedural fallback.`, error);
+    }
+  }
+
+  private updateRigged(agent: Agent, dt: number): void {
+    const rigged = agent.rigged!;
+    rigged.mixer.update(dt);
+
+    agent.anchor.getWorldPosition(this.npcWorld);
+    const dx = this.playerWorld.x - this.npcWorld.x;
+    const dz = this.playerWorld.z - this.npcWorld.z;
+    const distance = Math.hypot(dx, dz);
+    const shouldAttend = agent.focus || distance < 6.8;
+    agent.attention = THREE.MathUtils.damp(agent.attention, shouldAttend ? 1 : 0, 5.0, dt);
+
+    const worldTargetYaw = shouldAttend ? Math.atan2(dx, dz) : agent.baseYaw;
+    const bodyBlend = agent.focus || distance < 3.9 ? 0.9 : 0.34;
+    const targetYaw = this.mixAngle(agent.baseYaw, worldTargetYaw, bodyBlend * agent.attention);
+    rigged.root.rotation.y = this.dampAngle(rigged.root.rotation.y, targetYaw, 5.6, dt);
+
+    if (rigged.head) {
+      const relative = this.wrapAngle(worldTargetYaw - rigged.root.rotation.y);
+      const yaw = THREE.MathUtils.clamp(relative, -0.42, 0.42) * agent.attention;
+      rigged.head.rotation.y += (yaw - rigged.head.rotation.y) * (1 - Math.exp(-dt * 7.2));
+      if (agent.focus) rigged.head.rotation.x += (-0.015 - rigged.head.rotation.x) * (1 - Math.exp(-dt * 5.5));
+    }
+
+    agent.nextGesture -= dt;
+    if (this.clock >= agent.riggedActionUntil && agent.nextGesture <= 0) {
+      this.playRiggedGesture(agent, agent.focus);
+      agent.nextGesture = (agent.focus ? 1.9 : 4.1) + this.seed(agent.id, this.clock * 0.57) * (agent.focus ? 1.8 : 4.4);
+    }
+  }
+
+  private playRiggedGesture(agent: Agent, dialogue: boolean): void {
+    const rigged = agent.rigged;
+    if (!rigged) return;
+    const seed = this.seed(agent.id, this.clock + agent.phase);
+    const action = (dialogue || seed < 0.58 ? rigged.interact : rigged.useItem) ?? rigged.interact ?? rigged.useItem;
+    if (!action) return;
+
+    action.reset();
+    action.enabled = true;
+    action.setEffectiveWeight(1);
+    action.setEffectiveTimeScale(dialogue ? 0.88 : 0.76 + seed * 0.24);
+    action.crossFadeFrom(rigged.idle, 0.18, true);
+    action.play();
+    const duration = Math.max(0.7, action.getClip().duration / action.getEffectiveTimeScale());
+    agent.riggedActionUntil = this.clock + duration;
+
+    window.setTimeout(() => {
+      if (!agent.rigged || agent.rigged !== rigged) return;
+      rigged.idle.reset().play();
+      rigged.idle.crossFadeFrom(action, 0.22, true);
+    }, duration * 1000);
   }
 
   private resolvePlayerPosition(candidate: THREE.Vector3): void {
@@ -100,9 +179,7 @@ export class NPCLifeController {
       const closed = agent.blinkLeft > 0;
       agent.model.blinkLeft.visible = closed;
       agent.model.blinkRight.visible = closed;
-      if (!closed) {
-        agent.blinkTimer = 1.8 + this.seed(agent.id, this.clock * 0.37) * 3.6;
-      }
+      if (!closed) agent.blinkTimer = 1.8 + this.seed(agent.id, this.clock * 0.37) * 3.6;
       return;
     }
 
@@ -117,14 +194,13 @@ export class NPCLifeController {
     agent.model.blinkRight.visible = false;
   }
 
-  private updateAttention(agent: Agent, dt: number): void {
+  private updateAttentionProcedural(agent: Agent, dt: number): void {
     agent.anchor.getWorldPosition(this.npcWorld);
     const dx = this.playerWorld.x - this.npcWorld.x;
     const dz = this.playerWorld.z - this.npcWorld.z;
     const distance = Math.hypot(dx, dz);
     const shouldAttend = agent.focus || distance < 6.5;
-    const targetAttention = shouldAttend ? 1 : 0;
-    agent.attention = THREE.MathUtils.damp(agent.attention, targetAttention, 5.2, dt);
+    agent.attention = THREE.MathUtils.damp(agent.attention, shouldAttend ? 1 : 0, 5.2, dt);
 
     const targetYaw = shouldAttend ? Math.atan2(dx, dz) : agent.baseYaw;
     const current = agent.model.visual.rotation.y;
@@ -139,7 +215,7 @@ export class NPCLifeController {
     agent.model.rig.head.rotation.x = THREE.MathUtils.damp(agent.model.rig.head.rotation.x, headPitchTarget, 6.0, dt);
   }
 
-  private updateGesture(agent: Agent, dt: number): void {
+  private updateGestureProcedural(agent: Agent, dt: number): void {
     if (agent.gesture === 'none') {
       agent.nextGesture -= dt;
       if (agent.nextGesture <= 0) {
@@ -213,6 +289,30 @@ export class NPCLifeController {
     if (agent.role === 'quality' || agent.role === 'metrology') return seed < 0.68 ? 'tablet' : 'inspect';
     if (agent.role === 'maintenance') return seed < 0.55 ? 'inspect' : 'radio';
     return seed < 0.5 ? 'inspect' : 'explain';
+  }
+
+  private styleFor(agent: Agent): RiggedStaffStyle {
+    const presets: Record<string, Partial<RiggedStaffStyle>> = {
+      'npc-laura': { accent: 0x326f8f, feminine: true, helmet: false, glasses: true, labCoat: true, tablet: true, hairColor: 0x3b2b27 },
+      'npc-mateo': { accent: 0xf3c83f, helmet: true, glasses: false, hairColor: 0x2d211d },
+      'npc-andres': { accent: 0x4f9b68, helmet: true, glasses: true, hairColor: 0x211d1b },
+      'npc-daniela': { accent: 0x7eb7ff, feminine: true, helmet: false, glasses: true, labCoat: true, tablet: true, hairColor: 0x51372c },
+      'npc-maintenance': { accent: 0xd9a928, helmet: true, glasses: true, hairColor: 0x2b2522 },
+      'npc-dispatch': { accent: 0xb77042, feminine: true, helmet: true, glasses: false, tablet: true, hairColor: 0x402b26 },
+      'npc-capa-lead': { accent: 0x9c7ad8, feminine: true, helmet: false, glasses: true, labCoat: false, tablet: true, hairColor: 0x342822 }
+    };
+    const preset = presets[agent.id] ?? {};
+    return {
+      id: agent.id,
+      role: agent.role,
+      accent: preset.accent ?? 0xf3c83f,
+      feminine: preset.feminine,
+      helmet: preset.helmet,
+      glasses: preset.glasses,
+      labCoat: preset.labCoat,
+      tablet: preset.tablet,
+      hairColor: preset.hairColor
+    };
   }
 
   private seed(id: string, salt: number): number {
