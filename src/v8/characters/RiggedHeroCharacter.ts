@@ -176,7 +176,7 @@ export class RiggedHeroCharacter {
   }
 
   private clip(clips: THREE.AnimationClip[], name: string): THREE.AnimationClip | undefined {
-    return THREE.AnimationClip.findByName(clips, name);
+    return THREE.AnimationClip.findByName(clips, name) ?? undefined;
   }
 
   private required(clips: THREE.AnimationClip[], name: string): THREE.AnimationClip {
