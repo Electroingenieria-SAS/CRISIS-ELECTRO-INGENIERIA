@@ -63,7 +63,7 @@ export class NPCLifeController {
 
   update(dt: number, playerPosition: THREE.Vector3): void {
     this.clock += dt;
-    this.playerWorld.copy(playerPosition);
+    this.resolvePlayerPosition(playerPosition);
 
     for (const agent of this.agents) {
       this.factory.animateIdle(agent.model, this.clock, agent.phase);
@@ -72,6 +72,25 @@ export class NPCLifeController {
       this.updateGesture(agent, dt);
       this.updateWeightShift(agent);
     }
+  }
+
+  private resolvePlayerPosition(candidate: THREE.Vector3): void {
+    if (candidate.lengthSq() < 100000) {
+      this.playerWorld.copy(candidate);
+      return;
+    }
+
+    const first = this.agents[0];
+    if (!first) {
+      this.playerWorld.copy(candidate);
+      return;
+    }
+
+    let root: THREE.Object3D = first.anchor;
+    while (root.parent) root = root.parent;
+    const player = root.getObjectByName('V8_PLAYER');
+    if (player) player.getWorldPosition(this.playerWorld);
+    else this.playerWorld.copy(candidate);
   }
 
   private updateBlink(agent: Agent, dt: number): void {
@@ -94,8 +113,6 @@ export class NPCLifeController {
       return;
     }
 
-    // CharacterFactory has a fallback sinusoidal blink; controller owns the
-    // final state so the cadence looks less mechanical.
     agent.model.blinkLeft.visible = false;
     agent.model.blinkRight.visible = false;
   }
