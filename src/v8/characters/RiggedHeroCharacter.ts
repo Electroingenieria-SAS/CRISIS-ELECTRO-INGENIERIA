@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { RiggedCharacterLibrary } from './RiggedCharacterLibrary';
 import { RiggedHeroAnimator } from './RiggedHeroAnimator';
 
 export interface RiggedHeroAsset {
@@ -8,34 +8,27 @@ export interface RiggedHeroAsset {
 }
 
 /**
- * Local, skeletal hero pipeline. Uses the KayKit Rig_Medium already vendored
- * in public/assets, so Pages/Vercel never depend on a remote asset host.
+ * Premium local skeletal hero. The authored KayKit skin provides deformation
+ * and facial topology while V8 rebuilds the visual identity as an industrial
+ * engineer with PBR materials and equipment attached to animated bones.
  */
 export class RiggedHeroCharacter {
-  private readonly loader = new GLTFLoader();
-
   async load(accentColor: number): Promise<RiggedHeroAsset> {
-    const base = import.meta.env.BASE_URL || '/';
-    const [character, movement, general] = await Promise.all([
-      this.loader.loadAsync(`${base}assets/kaykit/characters/Knight.glb`),
-      this.loader.loadAsync(`${base}assets/kaykit/animations/Rig_Medium_MovementBasic.glb`),
-      this.loader.loadAsync(`${base}assets/kaykit/animations/Rig_Medium_General.glb`)
-    ]);
+    const { scene, clips } = await RiggedCharacterLibrary.clone();
 
     const root = new THREE.Group();
     root.name = 'V8_RIGGED_HERO';
-    const skeletonScene = character.scene;
+    const skeletonScene = scene;
     skeletonScene.name = 'V8_RIGGED_HERO_SKELETON';
     skeletonScene.scale.setScalar(0.92);
-    // KayKit's authored forward axis is opposite the V8 world convention.
-    // Keep the correction on the inner skeleton so Player can rotate `root`
-    // freely toward movement without losing the asset-space correction.
+    // KayKit authored forward is opposite the V8 convention. Keep this on the
+    // inner skeleton so Player may rotate the outer root toward movement.
     skeletonScene.rotation.y = Math.PI;
     root.add(skeletonScene);
 
     this.rebuildMaterials(skeletonScene, accentColor);
     this.hideMedievalParts(skeletonScene);
-    this.addIndustrialPPE(skeletonScene, accentColor);
+    this.addIndustrialIdentity(skeletonScene, accentColor);
 
     skeletonScene.traverse((node) => {
       if (node instanceof THREE.Mesh) {
@@ -45,41 +38,56 @@ export class RiggedHeroCharacter {
       }
     });
 
-    const idle = this.clip(general.animations, 'Idle_A') ?? this.required(general.animations, 'Idle_B');
-    const walk = this.clip(movement.animations, 'Walking_A') ?? this.required(movement.animations, 'Walking_B');
-    const run = this.clip(movement.animations, 'Running_A') ?? this.required(movement.animations, 'Running_B');
-    const interact = this.clip(general.animations, 'Interact');
-    const pickup = this.clip(general.animations, 'PickUp');
-    const useItem = this.clip(general.animations, 'Use_Item');
-    const animator = new RiggedHeroAnimator(root, { idle, walk, run, interact, pickup, useItem });
-
+    const animator = new RiggedHeroAnimator(root, clips);
     return { root, animator };
   }
 
   private rebuildMaterials(root: THREE.Object3D, accentColor: number): void {
-    const navy = new THREE.MeshPhysicalMaterial({ color: 0x173346, roughness: 0.56, metalness: 0.08, clearcoat: 0.16, clearcoatRoughness: 0.42 });
-    const pants = new THREE.MeshStandardMaterial({ color: 0x293840, roughness: 0.78, metalness: 0.03 });
-    const sleeve = new THREE.MeshStandardMaterial({ color: 0x214d67, roughness: 0.64, metalness: 0.04 });
-    const accent = new THREE.MeshPhysicalMaterial({ color: accentColor, roughness: 0.42, metalness: 0.08, clearcoat: 0.3, clearcoatRoughness: 0.34 });
+    const jacket = new THREE.MeshPhysicalMaterial({
+      color: 0x173346,
+      roughness: 0.52,
+      metalness: 0.04,
+      clearcoat: 0.14,
+      clearcoatRoughness: 0.48
+    });
+    const sleeves = new THREE.MeshPhysicalMaterial({
+      color: 0x214d67,
+      roughness: 0.58,
+      metalness: 0.025,
+      clearcoat: 0.08,
+      clearcoatRoughness: 0.52
+    });
+    const trousers = new THREE.MeshStandardMaterial({ color: 0x27343b, roughness: 0.8, metalness: 0.025 });
+    const boots = new THREE.MeshPhysicalMaterial({ color: 0x10181c, roughness: 0.58, metalness: 0.12, clearcoat: 0.08 });
+    const accent = new THREE.MeshPhysicalMaterial({
+      color: accentColor,
+      roughness: 0.4,
+      metalness: 0.055,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.32
+    });
 
     root.traverse((node) => {
       if (!(node instanceof THREE.Mesh)) return;
-      if (node.name.includes('Body')) node.material = navy;
-      else if (node.name.includes('Leg')) node.material = pants;
-      else if (node.name.includes('Arm')) node.material = sleeve;
-      // Keep the original head material: it carries authored facial texture/detail.
+      const name = node.name.toLowerCase();
+      if (name.includes('body') || name.includes('torso') || name.includes('chest')) node.material = jacket;
+      else if (name.includes('arm') || name.includes('sleeve')) node.material = sleeves;
+      else if (name.includes('leg') || name.includes('pants') || name.includes('trouser')) node.material = trousers;
+      else if (name.includes('boot') || name.includes('shoe')) node.material = boots;
       node.userData.heroAccent = accent;
     });
   }
 
   private hideMedievalParts(root: THREE.Object3D): void {
-    for (const name of ['Knight_Cape', 'Knight_Helmet', 'Knight_HelmetVisor']) {
-      const object = root.getObjectByName(name);
-      if (object) object.visible = false;
-    }
+    root.traverse((node) => {
+      const name = node.name.toLowerCase();
+      if (name.includes('cape') || name.includes('helmetvisor') || name === 'knight_helmet' || name.includes('sword') || name.includes('shield')) {
+        node.visible = false;
+      }
+    });
   }
 
-  private addIndustrialPPE(root: THREE.Object3D, accentColor: number): void {
+  private addIndustrialIdentity(root: THREE.Object3D, accentColor: number): void {
     const chest = root.getObjectByName('chest');
     const head = root.getObjectByName('head');
     const handR = root.getObjectByName('handslot.r') ?? root.getObjectByName('hand.r');
@@ -87,101 +95,154 @@ export class RiggedHeroCharacter {
 
     const accent = new THREE.MeshPhysicalMaterial({
       color: accentColor,
-      roughness: 0.43,
-      metalness: 0.05,
-      clearcoat: 0.28,
-      clearcoatRoughness: 0.34
+      roughness: 0.4,
+      metalness: 0.045,
+      clearcoat: 0.32,
+      clearcoatRoughness: 0.3
     });
-    const reflective = new THREE.MeshStandardMaterial({
-      color: 0xf2fbfc,
-      roughness: 0.25,
-      metalness: 0.08,
-      emissive: 0xaed6de,
-      emissiveIntensity: 0.08
+    const fabricDark = new THREE.MeshStandardMaterial({ color: 0x18282f, roughness: 0.78, metalness: 0.02 });
+    const reflective = new THREE.MeshPhysicalMaterial({
+      color: 0xf1fafb,
+      roughness: 0.2,
+      metalness: 0.11,
+      clearcoat: 0.4,
+      emissive: 0x7da9b4,
+      emissiveIntensity: 0.055
     });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x10181c, roughness: 0.7, metalness: 0.12 });
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x0e1519, roughness: 0.66, metalness: 0.08 });
+    const steel = new THREE.MeshStandardMaterial({ color: 0x5d6e76, roughness: 0.34, metalness: 0.68 });
     const glass = new THREE.MeshPhysicalMaterial({
       color: 0x9bc7db,
-      roughness: 0.1,
+      roughness: 0.08,
       metalness: 0,
       transparent: true,
-      opacity: 0.4,
-      transmission: 0.2,
-      thickness: 0.025
+      opacity: 0.38,
+      transmission: 0.28,
+      thickness: 0.03,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.12
     });
+    const hair = new THREE.MeshStandardMaterial({ color: 0x352821, roughness: 0.82, metalness: 0 });
 
-    // Rigid vest/harness follows the animated chest bone.
+    // Layered high-visibility vest: front, back and side straps follow the chest.
     const vest = new THREE.Group();
-    vest.name = 'EI_SAFETY_VEST';
-    const front = new THREE.Mesh(new THREE.BoxGeometry(0.69, 0.58, 0.12), accent);
-    front.position.set(0, -0.08, 0.29);
-    vest.add(front);
-    for (const y of [-0.21, 0.02]) {
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.045, 0.135), reflective);
-      stripe.position.set(0, y, 0.3);
-      vest.add(stripe);
+    vest.name = 'EI_SAFETY_VEST_PREMIUM';
+    const front = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.59, 0.1), accent);
+    front.position.set(0, -0.085, 0.292);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.69, 0.58, 0.085), accent);
+    back.position.set(0, -0.085, -0.285);
+    vest.add(front, back);
+    for (const y of [-0.22, 0.025]) {
+      const frontStripe = new THREE.Mesh(new THREE.BoxGeometry(0.705, 0.043, 0.125), reflective);
+      frontStripe.position.set(0, y, 0.31);
+      const backStripe = frontStripe.clone();
+      backStripe.position.z = -0.305;
+      vest.add(frontStripe, backStripe);
     }
     for (const side of [-1, 1] as const) {
-      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.61, 0.03), reflective);
-      strap.position.set(side * 0.2, -0.06, 0.355);
-      strap.rotation.z = side * -0.08;
-      vest.add(strap);
+      const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.61, 0.035), reflective);
+      shoulder.position.set(side * 0.205, -0.055, 0.355);
+      shoulder.rotation.z = side * -0.085;
+      const sidePanel = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.38, 0.42), fabricDark);
+      sidePanel.position.set(side * 0.355, -0.12, 0);
+      vest.add(shoulder, sidePanel);
     }
-    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.065), dark);
-    radio.position.set(-0.29, 0.13, 0.35);
+
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.035, 8, 20, Math.PI), fabricDark);
+    collar.rotation.set(Math.PI / 2, 0, Math.PI);
+    collar.position.set(0, 0.24, 0.07);
+    vest.add(collar);
+
+    const radio = new THREE.Group();
+    radio.name = 'EI_RADIO';
+    const radioBody = new THREE.Mesh(new THREE.BoxGeometry(0.105, 0.205, 0.07), rubber);
+    const radioFace = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.055, 0.012), steel);
+    radioFace.position.set(0, 0.03, 0.041);
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.15, 8), rubber);
+    antenna.position.set(-0.035, 0.16, 0);
+    radio.add(radioBody, radioFace, antenna);
+    radio.position.set(-0.29, 0.11, 0.355);
     vest.add(radio);
-    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.018), reflective);
-    badge.position.set(0.24, 0.1, 0.36);
-    vest.add(badge);
+
+    const badgeFrame = new THREE.Mesh(new THREE.BoxGeometry(0.155, 0.205, 0.025), rubber);
+    badgeFrame.position.set(0.25, 0.09, 0.355);
+    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.168, 0.012), reflective);
+    badge.position.set(0.25, 0.09, 0.37);
+    vest.add(badgeFrame, badge);
+
+    const utilityPouch = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.17, 0.09), fabricDark);
+    utilityPouch.position.set(0.28, -0.32, 0.23);
+    vest.add(utilityPouch);
     chest.add(vest);
 
-    // Industrial hardhat + glasses follow the head bone.
+    // Hair remains visible around the hardhat, giving the hero an actual head silhouette.
+    const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.276, 22, 11, 0, Math.PI * 2, 0, Math.PI * 0.52), hair);
+    hairCap.position.set(0, 0.095, -0.015);
+    hairCap.scale.set(1, 0.82, 0.98);
+    head.add(hairCap);
+
+    // Industrial hardhat with shell, brim, suspension cue and front reflector.
     const helmet = new THREE.Group();
-    helmet.name = 'EI_HARDHAT';
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.305, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.56), accent);
-    shell.position.set(0, 0.12, 0.01);
-    shell.scale.z = 0.94;
-    helmet.add(shell);
-    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.05, 0.44), accent);
-    brim.position.set(0, 0.015, 0.09);
-    helmet.add(brim);
-    const frontReflector = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.018), reflective);
-    frontReflector.position.set(0, 0.22, 0.275);
-    helmet.add(frontReflector);
+    helmet.name = 'EI_HARDHAT_PREMIUM';
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.31, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.56), accent);
+    shell.position.set(0, 0.145, 0.01);
+    shell.scale.set(1.02, 0.92, 0.96);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.335, 0.355, 0.045, 28), accent);
+    brim.position.set(0, 0.035, 0.035);
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.075, 0.49), accent);
+    ridge.position.set(0, 0.255, 0.015);
+    const frontReflector = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.055, 0.018), reflective);
+    frontReflector.position.set(0, 0.215, 0.286);
+    helmet.add(shell, brim, ridge, frontReflector);
     head.add(helmet);
 
+    // Safety glasses with separate lenses, bridge and side arms.
     const glasses = new THREE.Group();
+    glasses.name = 'EI_SAFETY_GLASSES';
     for (const side of [-1, 1] as const) {
-      const lens = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.085, 0.02), glass);
-      lens.position.set(side * 0.095, 0.015, 0.29);
-      glasses.add(lens);
+      const lens = new THREE.Mesh(new THREE.SphereGeometry(0.098, 16, 10), glass);
+      lens.scale.set(1, 0.55, 0.16);
+      lens.position.set(side * 0.105, 0.014, 0.282);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.018, 0.018), rubber);
+      arm.position.set(side * 0.185, 0.025, 0.18);
+      arm.rotation.y = side * 0.36;
+      glasses.add(lens, arm);
     }
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.018, 0.018), dark);
-    bridge.position.set(0, 0.015, 0.305);
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.016, 0.018), rubber);
+    bridge.position.set(0, 0.014, 0.302);
     glasses.add(bridge);
     head.add(glasses);
 
     if (handR) {
       const scanner = new THREE.Group();
       scanner.name = 'EI_HAND_SCANNER_RIGGED';
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.23, 0.09), dark);
-      const screenMat = new THREE.MeshStandardMaterial({ color: accentColor, emissive: accentColor, emissiveIntensity: 0.42, roughness: 0.25 });
-      const screen = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.1, 0.012), screenMat);
-      screen.position.z = 0.051;
-      scanner.add(body, screen);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.135, 0.235, 0.092), rubber);
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.14, 0.07), rubber);
+      grip.position.set(0, -0.16, -0.015);
+      grip.rotation.x = -0.15;
+      const screenMat = new THREE.MeshPhysicalMaterial({
+        color: accentColor,
+        emissive: accentColor,
+        emissiveIntensity: 0.35,
+        roughness: 0.18,
+        clearcoat: 0.42
+      });
+      const screen = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.105, 0.013), screenMat);
+      screen.position.set(0, 0.042, 0.052);
+      const scanWindow = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.035, 0.014), glass);
+      scanWindow.position.set(0, 0.11, 0.051);
+      scanner.add(body, grip, screen, scanWindow);
       scanner.position.set(0, 0.07, 0.035);
       scanner.rotation.set(-0.25, 0.12, 0);
       handR.add(scanner);
     }
-  }
 
-  private clip(clips: THREE.AnimationClip[], name: string): THREE.AnimationClip | undefined {
-    return THREE.AnimationClip.findByName(clips, name) ?? undefined;
-  }
-
-  private required(clips: THREE.AnimationClip[], name: string): THREE.AnimationClip {
-    const clip = this.clip(clips, name);
-    if (!clip) throw new Error(`Missing required rig animation: ${name}`);
-    return clip;
+    // Small belt hardware adds scale cues close to the camera without new textures.
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.028, 8, 24), rubber);
+    belt.rotation.x = Math.PI / 2;
+    belt.position.set(0, -0.33, 0);
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.04), steel);
+    buckle.position.set(0, -0.33, 0.31);
+    chest.add(belt, buckle);
   }
 }
