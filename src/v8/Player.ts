@@ -1,8 +1,15 @@
 import * as THREE from 'three';
 import { CharacterAnimator, type CharacterAction } from './animation/CharacterAnimator';
 import { HeroCharacter } from './characters/HeroCharacter';
+import { RiggedHeroCharacter } from './characters/RiggedHeroCharacter';
 import type { Collider, PlayerProfile } from './types';
 import type { Input } from './Input';
+
+interface PlayerAnimator {
+  setLocomotion(moving: boolean, sprinting: boolean, carrying: boolean): void;
+  play(action: Exclude<CharacterAction, null>): void;
+  update(dt: number): void;
+}
 
 export class Player {
   readonly group = new THREE.Group();
@@ -12,13 +19,16 @@ export class Player {
   private carrySocket = new THREE.Group();
   private carriedId: string | null = null;
   private carriedObject: THREE.Object3D | null = null;
-  private animator!: CharacterAnimator;
+  private animator!: PlayerAnimator;
+  private rigged = false;
 
   constructor(private profile: PlayerProfile) {
     this.group.name = 'V8_PLAYER';
-    this.buildAvatar();
+    const accent = new THREE.Color(this.profile.accent).getHex();
+    this.buildFallbackAvatar(accent);
     this.carrySocket.position.set(0, 1.42, 0.78);
     this.group.add(this.carrySocket);
+    void this.promoteToRiggedHero(accent);
   }
 
   update(dt: number, input: Input, colliders: Collider[], screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
@@ -92,8 +102,7 @@ export class Player {
     return { id, object };
   }
 
-  private buildAvatar(): void {
-    const accent = new THREE.Color(this.profile.accent).getHex();
+  private buildFallbackAvatar(accent: number): void {
     const role = this.profile.role === 'quality' ? 'quality' : this.profile.role === 'process' ? 'production' : 'maintenance';
     const hero = new HeroCharacter();
     const model = hero.create({
@@ -103,6 +112,7 @@ export class Player {
     });
 
     this.visual = model.visual;
+    this.visual.name = 'V8_HERO_FALLBACK';
     this.group.add(this.visual);
     this.animator = new CharacterAnimator({ ...model.rig, root: this.group, visual: this.visual });
 
@@ -110,9 +120,30 @@ export class Player {
       new THREE.CircleGeometry(0.52, 28),
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.19, depthWrite: false })
     );
+    shadow.name = 'V8_PLAYER_CONTACT_SHADOW';
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.015;
     this.group.add(shadow);
+  }
+
+  private async promoteToRiggedHero(accent: number): Promise<void> {
+    try {
+      const rigged = await new RiggedHeroCharacter().load(accent);
+      // Avoid replacing the avatar in the middle of a carry operation. The
+      // loader is normally complete before the first playable interaction.
+      if (this.carriedId) return;
+
+      const oldVisual = this.visual;
+      this.group.remove(oldVisual);
+      this.visual = rigged.root;
+      this.group.add(this.visual);
+      this.animator = rigged.animator;
+      this.rigged = true;
+      this.group.userData.riggedHero = true;
+    } catch (error) {
+      console.warn('[V8] Rigged hero unavailable; retaining premium procedural fallback.', error);
+      this.rigged = false;
+    }
   }
 
   private collides(position: THREE.Vector3, colliders: Collider[]): boolean {
