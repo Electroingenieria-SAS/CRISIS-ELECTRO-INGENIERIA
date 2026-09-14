@@ -6,6 +6,7 @@ import { CinematicDirector, type CinematicSequence } from '../v3/CinematicDirect
 import type { GameProgress, PlayerProfile, ZoneId } from '../v3/types';
 import { V5ArtPass } from '../v5/ArtPass';
 import { V6AdventureLayer } from '../v6/AdventureLayer';
+import { V6PostFX } from '../v6/PostFX';
 import { PROLOGUE, V4_OPENING } from './content';
 import { V4Overlay } from './Overlay';
 import { V4Player } from './Player';
@@ -26,6 +27,7 @@ export class AdventureGameV4 {
   private world!: V4World;
   private artPass!: V5ArtPass;
   private premium!: V6AdventureLayer;
+  private postFx: V6PostFX;
   private profile!: PlayerProfile;
   private running = false;
   private finished = false;
@@ -76,6 +78,8 @@ export class AdventureGameV4 {
     this.overlay = new V4Overlay(root);
     this.controls = new Controls(this.renderer.domElement);
     this.cinematic = new CinematicDirector(root, this.camera);
+    this.postFx = new V6PostFX(this.renderer, this.scene, this.camera);
+    this.postFx.resize(window.innerWidth, window.innerHeight, Math.min(window.devicePixelRatio, 1.7));
     window.addEventListener('resize', this.onResize);
   }
 
@@ -184,7 +188,7 @@ export class AdventureGameV4 {
     const carried = this.player.getCarriedId();
     const carriedLabel = carried ? this.world.carryables.get(carried)?.label ?? carried : null;
     this.overlay.update(this.progress, carriedLabel);
-    this.renderer.render(this.scene, this.camera);
+    this.postFx.render();
     this.controls.endFrame();
   };
 
@@ -354,6 +358,8 @@ export class AdventureGameV4 {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+    const pixelRatio = Math.min(window.devicePixelRatio, 1.7);
+    this.renderer.setPixelRatio(pixelRatio);
+    this.postFx.resize(window.innerWidth, window.innerHeight, pixelRatio);
   };
 }
