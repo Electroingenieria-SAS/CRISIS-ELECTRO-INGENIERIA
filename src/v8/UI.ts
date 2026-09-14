@@ -92,6 +92,29 @@ export class UI {
     this.modal.innerHTML = '';
   }
 
+  async chapterIntro(kicker: string, title: string, body: string): Promise<void> {
+    return new Promise((resolve) => {
+      this.modal.innerHTML = `
+        <div class="v8-chapter">
+          <small>${kicker}</small>
+          <div class="v8-chapter-line"></div>
+          <h2>${title}</h2>
+          <p>${body}</p>
+          <button id="v8-chapter-next">INICIAR SECTOR →</button>
+        </div>`;
+      this.modal.classList.remove('is-hidden');
+      const done = () => {
+        window.removeEventListener('keydown', key);
+        this.modal.classList.add('is-hidden');
+        this.modal.innerHTML = '';
+        resolve();
+      };
+      const key = (event: KeyboardEvent) => { if (event.code === 'Enter' || event.code === 'Space' || event.code === 'KeyE') done(); };
+      window.addEventListener('keydown', key);
+      this.modal.querySelector('#v8-chapter-next')?.addEventListener('click', done, { once: true });
+    });
+  }
+
   update(state: GameState): void {
     const seconds = Math.max(0, Math.floor(state.remainingSeconds));
     this.timer.textContent = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
@@ -108,9 +131,9 @@ export class UI {
     this.zone.style.setProperty('--zone', meta.accent);
   }
 
-  setPrompt(text: string | null): void {
+  setPrompt(text: string | null, key = 'E'): void {
     if (!text) { this.prompt.classList.add('is-hidden'); return; }
-    this.prompt.innerHTML = `<kbd>E</kbd><span>${text}</span>`;
+    this.prompt.innerHTML = `<kbd>${key}</kbd><span>${text}</span>`;
     this.prompt.classList.remove('is-hidden');
   }
 
@@ -130,6 +153,30 @@ export class UI {
       const key = (event: KeyboardEvent) => { if (event.code === 'Enter' || event.code === 'Space' || event.code === 'KeyE') done(); };
       window.addEventListener('keydown', key);
       this.modal.querySelector('#v8-dialogue-next')?.addEventListener('click', done, { once: true });
+    });
+  }
+
+  async showEvidence(title: string, subtitle: string, rows: Array<[string, string]>): Promise<void> {
+    return new Promise((resolve) => {
+      const table = rows.map(([label, value]) => `<div class="v8-evidence-row"><span>${label}</span><b>${value}</b></div>`).join('');
+      this.modal.innerHTML = `
+        <div class="v8-evidence">
+          <small>EVIDENCIA DOCUMENTAL</small>
+          <h2>${title}</h2>
+          <p>${subtitle}</p>
+          <div class="v8-evidence-table">${table}</div>
+          <button id="v8-evidence-close">REGISTRAR EVIDENCIA →</button>
+        </div>`;
+      this.modal.classList.remove('is-hidden');
+      const done = () => {
+        window.removeEventListener('keydown', key);
+        this.modal.classList.add('is-hidden');
+        this.modal.innerHTML = '';
+        resolve();
+      };
+      const key = (event: KeyboardEvent) => { if (event.code === 'Enter' || event.code === 'Space' || event.code === 'KeyE') done(); };
+      window.addEventListener('keydown', key);
+      this.modal.querySelector('#v8-evidence-close')?.addEventListener('click', done, { once: true });
     });
   }
 
