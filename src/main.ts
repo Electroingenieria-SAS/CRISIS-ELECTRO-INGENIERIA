@@ -1,5 +1,6 @@
 import './styles.css';
 import './v8/styles.css';
+import './v8/warehouse.css';
 import { GameMasterApp } from './game/Multiplayer';
 import { CrisisGameV8 } from './v8/Game';
 
