@@ -199,6 +199,13 @@ export class V4World {
     this.addFence(61, 0, 2, 104, true);
     this.addFence(3, -52, 116, 2, false);
     this.addFence(3, 55, 116, 2, false);
+
+    this.colliders.push(
+      { minX: -58, maxX: -54.5, minZ: -54, maxZ: 57 },
+      { minX: 60.5, maxX: 64, minZ: -54, maxZ: 57 },
+      { minX: -58, maxX: 64, minZ: -55, maxZ: -51.5 },
+      { minX: -58, maxX: 64, minZ: 54.5, maxZ: 58 }
+    );
   }
 
   private buildRoadNetwork(): void {
@@ -366,12 +373,13 @@ export class V4World {
         }
       });
 
-      const tag = this.makePedestal(x, -27, gauge.conforming ? '#61798A' : '#61798A', `ETIQUETAR ${String.fromCharCode(65 + index)}`);
+      const tag = this.makePedestal(x, -27, '#61798A', `ETIQUETAR ${String.fromCharCode(65 + index)}`);
       this.addInteractable(`tag-${gauge.id}`, `Marcar ${gauge.name} fuera de servicio`, tag, 2.0, async () => {
         if (this.progress.calibratedTools.size < GAUGES.length) {
           this.ui.showToast('EVIDENCIA INCOMPLETA', 'Mide primero los tres instrumentos con el patrón maestro.', 'danger');
           return;
         }
+        const errorText = `${gauge.error >= 0 ? '+' : ''}${gauge.error.toFixed(2)} mm`;
         if (!gauge.conforming) {
           if (!this.progress.flags.has('quality-seal')) {
             this.progress.flags.add('quality-seal');
@@ -685,7 +693,9 @@ export class V4World {
     this.colliders.push(
       { minX: x - width/2, maxX: x + width/2, minZ: z - depth/2 - 0.35, maxZ: z - depth/2 + 0.35 },
       { minX: x - width/2, maxX: x + width/2, minZ: z + depth/2 - 0.35, maxZ: z + depth/2 + 0.35 },
-      { minX: x + width/2 - 0.35, maxX: x + width/2 + 0.35, minZ: z - depth/2, maxZ: z + depth/2 }
+      { minX: x + width/2 - 0.35, maxX: x + width/2 + 0.35, minZ: z - depth/2, maxZ: z + depth/2 },
+      { minX: x - width/2 - 0.35, maxX: x - width/2 + 0.35, minZ: z - depth/2, maxZ: z - depth*0.14 },
+      { minX: x - width/2 - 0.35, maxX: x - width/2 + 0.35, minZ: z + depth*0.14, maxZ: z + depth/2 }
     );
     const accentBar = this.box(width * 0.75, 0.16, 0.18, new THREE.Color(accent).getHex(), x, 3.35, z - depth/2 + 0.3, false);
     accentBar.material = new THREE.MeshStandardMaterial({ color: new THREE.Color(accent), emissive: new THREE.Color(accent), emissiveIntensity: 0.45 });
@@ -698,7 +708,8 @@ export class V4World {
     const console = this.boxLocal(2.3, 1.35, 1.25, 0x35454f);
     console.position.y = 0.67;
     group.add(console);
-    const lightMat = new THREE.MeshStandardMaterial({ color: 0xd85b5b, emissive: 0x7a2626, emissiveIntensity: 0.9 });
+    const initialOn = Boolean(this.interlocks[index]);
+    const lightMat = new THREE.MeshStandardMaterial({ color: initialOn ? 0x55b985 : 0xd85b5b, emissive: initialOn ? 0x287a4c : 0x7a2626, emissiveIntensity: 0.9 });
     const light = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 10), lightMat);
     light.name = `interlock-light-${index}`;
     light.position.set(0, 1.5, 0.45);
