@@ -82,9 +82,7 @@ export class QualityZone {
   }
 
   private buildMetrologyControl(): void {
-    const worker = this.worker(13.0, -35.2, 0x5287b7);
-    this.actions.push({ id: 'npc-daniela', prompt: 'Hablar con Daniela · Metrología', object: worker, radius: 2.15 });
-    this.addMarker(worker, C.yellow, 2.55);
+    this.worker(13.0, -35.2, 0x5287b7);
 
     const station = this.kit.workstation();
     station.position.set(16.0, 0, -35.6);
