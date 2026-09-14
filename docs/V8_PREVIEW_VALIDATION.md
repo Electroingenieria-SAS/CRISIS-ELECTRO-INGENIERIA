@@ -1,0 +1,1 @@
+Preview validation must use the current feature/adventure-v8-rebuild head before any production promotion.
