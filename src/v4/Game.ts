@@ -88,15 +88,21 @@ export class AdventureGameV4 {
     this.player.onFootstep = () => this.audio.step();
 
     this.positionCamera(true, 0);
-    this.renderer.render(this.scene, this.camera);
+    this.overlay.update(this.progress, null);
+
+    // Start the render loop before cinematics. The timer remains stopped because
+    // startedAt is null, but camera choreography, ambient workers and overlays animate.
+    this.running = true;
+    this.clock.start();
+    this.loop();
+
     await this.cinematic.play(V4_OPENING);
     await this.ui.dialogue(PROLOGUE);
 
     this.progress.startedAt = performance.now();
-    this.overlay.update(this.progress, null);
-    this.running = true;
-    this.clock.start();
-    this.loop();
+    this.progress.objective = 'Recibe el briefing de Calidad';
+    this.progress.objectiveDetail = 'Habla con Laura y retira el escáner EI. Después explora el muelle de Recepción.';
+    this.ui.setObjective(this.progress.objective, this.progress.objectiveDetail);
   }
 
   private configureScene(): void {
@@ -131,6 +137,8 @@ export class AdventureGameV4 {
     else this.handleCameraInput(dt);
 
     if (!this.finished) {
+      this.handleGlobalControls();
+
       const modalLocked = this.ui.isModalOpen();
       const mapLocked = this.overlay.isMapOpen();
       const locked = modalLocked || mapLocked || this.cinematic.isPlaying || this.transitionLock;
@@ -169,6 +177,22 @@ export class AdventureGameV4 {
     this.renderer.render(this.scene, this.camera);
     this.controls.endFrame();
   };
+
+  private handleGlobalControls(): void {
+    // Map and close controls must work even while the map itself has movement locked.
+    if (!this.cinematic.isPlaying && !this.transitionLock && !this.ui.isModalOpen()) {
+      if (this.controls.consumePress('KeyQ', 'Tab')) this.overlay.toggleMap();
+      if (this.controls.consumePress('KeyI') && !this.overlay.isMapOpen()) this.ui.toggleInventory(this.legacyProgress());
+      if (this.controls.consumePress('KeyM')) {
+        const enabled = this.audio.toggle();
+        this.ui.showToast('AUDIO', enabled ? 'Sonido activado.' : 'Sonido silenciado.');
+      }
+    }
+    if (this.controls.consumePress('Escape')) {
+      this.overlay.hideMap();
+      this.ui.closePanels();
+    }
+  }
 
   private handleInteraction(): void {
     const carriedId = this.player.getCarriedId();
@@ -211,17 +235,6 @@ export class AdventureGameV4 {
       }
     } else {
       this.overlay.setPrompt(null);
-    }
-
-    if (this.controls.consumePress('KeyQ', 'Tab')) this.overlay.toggleMap();
-    if (this.controls.consumePress('KeyI')) this.ui.toggleInventory(this.legacyProgress());
-    if (this.controls.consumePress('KeyM')) {
-      const enabled = this.audio.toggle();
-      this.ui.showToast('AUDIO', enabled ? 'Sonido activado.' : 'Sonido silenciado.');
-    }
-    if (this.controls.consumePress('Escape')) {
-      this.overlay.hideMap();
-      this.ui.closePanels();
     }
   }
 
