@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { NPCLifeController } from './characters/NPCLifeController';
 import { ZONES } from './content';
 import type { Carryable, Collider, DropSocket, WorldAction, ZoneId } from './types';
+import { CharacterFactory, type CharacterStyle } from './visual/CharacterFactory';
 import { IndustrialKit, INDUSTRIAL_COLORS as C } from './visual/IndustrialKit';
 import { WarehouseZone } from './zones/WarehouseZone';
 import { ProductionZone } from './zones/ProductionZone';
@@ -20,8 +22,11 @@ export class World {
   readonly sockets = new Map<string, DropSocket>();
 
   private readonly kit = new IndustrialKit();
+  private readonly characterFactory = new CharacterFactory();
+  private readonly npcLife = new NPCLifeController();
   private readonly localMarkers: THREE.Mesh[] = [];
   private readonly rotators: THREE.Object3D[] = [];
+  private readonly noPlayer = new THREE.Vector3(999, 0, 999);
   private warehouse!: WarehouseZone;
   private production!: ProductionZone;
   private quality!: QualityZone;
@@ -43,18 +48,25 @@ export class World {
     this.buildDispatchProvisional();
     this.buildCapaProvisional();
     this.buildLandscape();
+    this.rebuildPrimaryStaff();
+    this.addAmbientStaff();
   }
 
-  update(dt: number): void {
+  update(dt: number, playerPosition?: THREE.Vector3): void {
     this.clock += dt;
     this.warehouse?.update(dt);
     this.production?.update(dt);
     this.quality?.update(dt);
+    this.npcLife.update(dt, playerPosition ?? this.noPlayer);
     for (const rotor of this.rotators) rotor.rotation.y += dt * 0.72;
     for (const marker of this.localMarkers) {
       marker.position.y = Number(marker.userData.baseY ?? 2.5) + Math.sin(this.clock * 2.4 + Number(marker.userData.phase ?? 0)) * 0.075;
       marker.rotation.y += dt * 0.75;
     }
+  }
+
+  focusNPC(id: string, active: boolean): void {
+    this.npcLife.setFocus(id, active);
   }
 
   setProductionState(state: boolean[]): void {
@@ -224,7 +236,7 @@ export class World {
 
   private buildControl(): void {
     this.openBuilding(0, 0, 19, 17, C.blue, 'CENTRO DE CONTROL');
-    const laura = this.worker(-3.2, -2.7, C.blue);
+    const laura = this.worker(-3.2, -2.7);
     this.addAction('npc-laura', 'Hablar con Laura · Calidad', laura, 2.2);
 
     const scanner = this.controlTerminal(3.6, -2.2, C.blue, 'ESCÁNER EI');
@@ -306,6 +318,87 @@ export class World {
     this.group.add(trunks, crowns);
   }
 
+  private rebuildPrimaryStaff(): void {
+    const primary: Array<{ id: string; style: CharacterStyle; phase: number }> = [
+      {
+        id: 'npc-laura',
+        phase: 0.2,
+        style: { name: 'Laura', role: 'quality', accent: C.blue, skin: 0xd9a985, hair: 0x3b2b27, eye: 0x5b7183, hairStyle: 'bun', feminine: true, glasses: true, helmet: false, labCoat: true, radio: false, tablet: true }
+      },
+      {
+        id: 'npc-mateo',
+        phase: 1.3,
+        style: { name: 'Mateo', role: 'warehouse', accent: C.yellow, skin: 0xc88d69, hair: 0x2d211d, eye: 0x5a6a63, hairStyle: 'buzz', beard: true, helmet: true, vest: true, radio: true }
+      },
+      {
+        id: 'npc-andres',
+        phase: 2.1,
+        style: { name: 'Andrés', role: 'production', accent: C.green, skin: 0xd4a079, hair: 0x211d1b, eye: 0x465f69, hairStyle: 'short', glasses: true, helmet: true, vest: true, radio: true }
+      }
+    ];
+
+    for (const entry of primary) {
+      const action = this.actions.find((candidate) => candidate.id === entry.id);
+      if (action) this.replaceWorkerVisual(entry.id, action.object, entry.style, entry.phase);
+    }
+
+    // Daniela was initially an ambient laboratory worker rather than an action.
+    // Locate that legacy worker and rebuild it as a full metrology character.
+    const danielaAnchor = this.findLegacyWorker(this.quality.group);
+    if (danielaAnchor) {
+      this.replaceWorkerVisual('npc-daniela', danielaAnchor, {
+        name: 'Daniela', role: 'metrology', accent: 0x7eb7ff, skin: 0xe0ad8d, hair: 0x51372c, eye: 0x496c75,
+        hairStyle: 'ponytail', feminine: true, glasses: true, helmet: false, labCoat: true, radio: false, tablet: true
+      }, 3.0);
+    }
+  }
+
+  private addAmbientStaff(): void {
+    this.createAmbientNPC('npc-maintenance', 34.4, 7.6, {
+      name: 'Samuel', role: 'maintenance', accent: C.yellowDark, skin: 0xc9906d, hair: 0x2b2522, eye: 0x536f78,
+      hairStyle: 'buzz', helmet: true, vest: true, radio: true
+    }, 3.8);
+
+    this.createAmbientNPC('npc-dispatch', -9.6, 38.8, {
+      name: 'Valentina', role: 'dispatch', accent: 0xb77042, skin: 0xd8a17e, hair: 0x402b26, eye: 0x4e6d79,
+      hairStyle: 'bun', feminine: true, helmet: true, vest: true, radio: true, tablet: true
+    }, 4.5);
+
+    this.createAmbientNPC('npc-capa-lead', 43.2, 39.5, {
+      name: 'Camila', role: 'lead', accent: 0x9c7ad8, skin: 0xd5a083, hair: 0x342822, eye: 0x556f80,
+      hairStyle: 'side', feminine: true, glasses: true, helmet: false, vest: false, radio: false, tablet: true
+    }, 5.2);
+  }
+
+  private createAmbientNPC(id: string, x: number, z: number, style: CharacterStyle, phase: number): void {
+    const anchor = new THREE.Group();
+    anchor.position.set(x, 0, z);
+    anchor.name = `${id}-anchor`;
+    this.group.add(anchor);
+    const model = this.characterFactory.create(style);
+    anchor.add(model.root);
+    this.npcLife.register(id, anchor, model, style.role, phase);
+  }
+
+  private replaceWorkerVisual(id: string, anchor: THREE.Object3D, style: CharacterStyle, phase: number): void {
+    const marker = anchor.userData.marker as THREE.Object3D | undefined;
+    for (const child of [...anchor.children]) {
+      if (child !== marker) anchor.remove(child);
+    }
+    const model = this.characterFactory.create(style);
+    anchor.add(model.root);
+    this.npcLife.register(id, anchor, model, style.role, phase);
+  }
+
+  private findLegacyWorker(root: THREE.Object3D): THREE.Group | null {
+    let match: THREE.Group | null = null;
+    root.traverse((node) => {
+      if (match || !(node instanceof THREE.Group)) return;
+      if (node.getObjectByName('worker-head')) match = node;
+    });
+    return match;
+  }
+
   private openBuilding(x: number, z: number, width: number, depth: number, accent: number, label: string): void {
     const floor = this.kit.box(width, 0.12, depth, this.kit.materials.concrete, false, true);
     floor.position.set(x, 0.02, z);
@@ -328,31 +421,10 @@ export class World {
     );
   }
 
-  private worker(x: number, z: number, accent: number): THREE.Group {
+  private worker(x: number, z: number): THREE.Group {
     const group = new THREE.Group();
     group.position.set(x, 0, z);
-    const pants = new THREE.MeshStandardMaterial({ color: 0x2e3940, roughness: 0.8 });
-    const shirt = new THREE.MeshStandardMaterial({ color: 0x173346, roughness: 0.65 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xd6a078, roughness: 0.75 });
-    const vest = new THREE.MeshStandardMaterial({ color: 0xf3c83f, roughness: 0.5 });
-    const legL = this.kit.box(0.24, 0.82, 0.26, pants);
-    legL.position.set(-0.15, 0.46, 0);
-    const legR = legL.clone();
-    legR.position.x = 0.15;
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.58, 4, 10), shirt);
-    torso.position.y = 1.43;
-    torso.scale.z = 0.7;
-    const vestMesh = this.kit.box(0.72, 0.62, 0.17, vest);
-    vestMesh.position.set(0, 1.44, 0.3);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), skin);
-    head.position.y = 2.15;
-    const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.18, 14), vest);
-    helmet.position.y = 2.42;
-    const badgeMaterial = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5, emissive: accent, emissiveIntensity: 0.08 });
-    const badge = this.kit.box(0.14, 0.19, 0.025, badgeMaterial);
-    badge.position.set(0.2, 1.58, 0.395);
-    group.add(legL, legR, torso, vestMesh, head, helmet, badge);
-    group.traverse((node) => { if (node instanceof THREE.Mesh) node.castShadow = true; });
+    group.name = 'staff-anchor';
     this.group.add(group);
     return group;
   }
