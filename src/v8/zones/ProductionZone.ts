@@ -15,6 +15,7 @@ export class ProductionZone {
   private indicators: THREE.Mesh[] = [];
   private mechanismMarkers: THREE.Mesh[] = [];
   private conveyorRollers: THREE.Mesh[] = [];
+  private workers: THREE.Group[] = [];
   private beacon!: THREE.Mesh;
   private clock = 0;
 
@@ -37,8 +38,14 @@ export class ProductionZone {
     this.clock += dt;
     for (const roller of this.conveyorRollers) roller.rotation.x += dt * 0.9;
     for (const marker of this.mechanismMarkers) {
-      marker.position.y = 2.18 + Math.sin(this.clock * 2.6 + marker.position.x * 0.17) * 0.07;
+      marker.position.y = Number(marker.userData.baseY ?? 2.18) + Math.sin(this.clock * 2.6 + Number(marker.userData.phase ?? 0)) * 0.07;
       marker.rotation.y += dt * 0.9;
+    }
+    for (let index = 0; index < this.workers.length; index++) {
+      const worker = this.workers[index]!;
+      worker.position.y = Math.sin(this.clock * 1.45 + index) * 0.008;
+      const head = worker.getObjectByName('worker-head');
+      if (head) head.rotation.y = Math.sin(this.clock * 0.62 + index * 0.8) * 0.08;
     }
     if (this.beacon) {
       const material = this.beacon.material;
@@ -121,7 +128,6 @@ export class ProductionZone {
 
     const station = this.kit.workstation();
     station.position.set(-33.0, 0, -35.1);
-    station.rotation.y = 0;
     this.group.add(station);
 
     const docs = new THREE.Group();
@@ -376,6 +382,7 @@ export class ProductionZone {
     const vestMesh = this.kit.box(0.72, 0.62, 0.17, vest);
     vestMesh.position.set(0, 1.44, 0.3);
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), skin);
+    head.name = 'worker-head';
     head.position.y = 2.15;
     const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.18, 14), vest);
     helmet.position.y = 2.42;
@@ -383,6 +390,8 @@ export class ProductionZone {
     badge.position.set(0.2, 1.58, 0.395);
     group.add(legL, legR, torso, vestMesh, head, helmet, badge);
     group.traverse((node) => { if (node instanceof THREE.Mesh) node.castShadow = true; });
+    this.group.add(group);
+    this.workers.push(group);
     return group;
   }
 
@@ -395,6 +404,8 @@ export class ProductionZone {
     const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.44, roughness: 0.28 });
     const marker = new THREE.Mesh(new THREE.OctahedronGeometry(0.17, 0), material);
     marker.position.y = y;
+    marker.userData.baseY = y;
+    marker.userData.phase = parent.position.x * 0.17 + parent.position.z * 0.11;
     parent.add(marker);
     parent.userData.marker = marker;
     this.mechanismMarkers.push(marker);
