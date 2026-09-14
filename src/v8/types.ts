@@ -28,6 +28,7 @@ export type Carryable = {
   label: string;
   object: THREE.Object3D;
   radius: number;
+  home?: [number, number, number];
 };
 
 export type DropSocket = {
