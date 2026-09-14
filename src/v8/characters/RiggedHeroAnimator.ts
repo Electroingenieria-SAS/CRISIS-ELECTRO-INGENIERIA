@@ -16,11 +16,13 @@ type BaseState = 'idle' | 'walk' | 'run';
 export class RiggedHeroAnimator {
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<string, THREE.AnimationAction>();
+  private readonly scanner: THREE.Object3D | null;
   private baseState: BaseState = 'idle';
   private moving = false;
   private sprinting = false;
   private carrying = false;
   private actionPlaying = false;
+  private activeAction: Exclude<CharacterAction, null> | null = null;
 
   constructor(private readonly root: THREE.Object3D, clips: RiggedHeroClips) {
     this.mixer = new THREE.AnimationMixer(root);
@@ -33,6 +35,9 @@ export class RiggedHeroAnimator {
       this.actions.set('scan', this.onceAction(clips.useItem));
       this.actions.set('drop', this.onceAction(clips.useItem));
     }
+
+    this.scanner = root.getObjectByName('EI_HAND_SCANNER_RIGGED') ?? null;
+    if (this.scanner) this.scanner.visible = false;
 
     const idle = this.actions.get('idle');
     idle?.reset().play();
@@ -54,6 +59,9 @@ export class RiggedHeroAnimator {
     if (!animation) return;
 
     this.actionPlaying = true;
+    this.activeAction = action;
+    if (this.scanner) this.scanner.visible = action === 'scan';
+
     const base = this.actions.get(this.baseState);
     animation.reset();
     animation.enabled = true;
@@ -64,7 +72,6 @@ export class RiggedHeroAnimator {
   }
 
   update(dt: number): void {
-    // Slightly reduce walk speed while carrying to visually match gameplay speed.
     const walk = this.actions.get('walk');
     if (walk) walk.setEffectiveTimeScale(this.carrying ? 0.78 : 1);
     this.mixer.update(dt);
@@ -89,6 +96,9 @@ export class RiggedHeroAnimator {
 
   private onFinished = (): void => {
     this.actionPlaying = false;
+    this.activeAction = null;
+    if (this.scanner) this.scanner.visible = false;
+
     const desired: BaseState = !this.moving ? 'idle' : this.sprinting && !this.carrying ? 'run' : 'walk';
     const target = this.actions.get(desired);
     if (!target) return;
