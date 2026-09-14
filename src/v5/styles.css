@@ -1,0 +1,33 @@
+.v5-root .adv-canvas {
+  filter: saturate(1.04) contrast(1.025);
+}
+
+.v5-root::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+  background:
+    radial-gradient(circle at 50% 45%, transparent 48%, rgba(2, 12, 18, 0.16) 100%),
+    linear-gradient(180deg, rgba(94, 169, 205, 0.035), transparent 28%, transparent 72%, rgba(3, 12, 18, 0.08));
+  mix-blend-mode: multiply;
+}
+
+.v5-root .v4-hud,
+.v5-root .v4-objective,
+.v5-root .adv-hud,
+.v5-root .adv-objective {
+  backdrop-filter: blur(18px) saturate(1.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.v5-root .v4-prompt,
+.v5-root .interaction-prompt {
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(116, 196, 233, 0.08) inset;
+}
+
+.v5-root .v4-zone-banner,
+.v5-root .ei-cine-copy {
+  text-shadow: 0 3px 22px rgba(0, 0, 0, 0.38);
+}
