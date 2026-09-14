@@ -1,33 +1,37 @@
-# V8 · Vertical Slice — Recepción / Almacén
+# V8 Vertical Slice — Recepción / Almacén
 
-Esta zona es el primer sector reconstruido bajo la regla V8: **reemplazar, no superponer**.
+Esta zona define el estándar mínimo que deben alcanzar las demás áreas antes de reconstruirse.
 
 ## Flujo jugable
+1. Briefing de Calidad.
+2. Obtención del Escáner EI.
+3. Entrada a Recepción / Almacén.
+4. Conversación con Mateo.
+5. Revisión del expediente PO-AUR-2417 / REC-0914.
+6. Escaneo físico de Pallet A, B y C.
+7. Interpretación del dato crudo.
+8. Toma física del pallet elegido.
+9. Traslado hasta la jaula de cuarentena.
+10. Consecuencia inmediata de la decisión.
 
-1. Recibir el briefing de Calidad.
-2. Obtener el Escáner EI.
-3. Entrar a Recepción/Almacén y hablar con Mateo.
-4. Revisar el expediente PO-AUR-2417 / REC-0914.
-5. Auditar físicamente Pallet A, B y C con el escáner.
-6. Interpretar referencia, revisión, cantidad y COA sin que la UI entregue la conclusión.
-7. Elegir físicamente uno de los tres pallets.
-8. Transportarlo a la jaula de CUARENTENA.
-9. Si la decisión es incorrecta, penalizar y devolver el pallet a su puesto de inspección.
-10. Si se segrega CT-48 Rev. A (Pallet B), cerrar trazabilidad de entrada y habilitar Producción.
+## Regla de diseño
+El escenario no debe revelar la respuesta correcta por color, disponibilidad o bloqueo artificial. Todos los pallets son manipulables después de completar la investigación documental y física.
 
-## Dirección espacial
+## Estándar visual
+- Kit industrial compartido con geometrías y materiales consistentes.
+- Racks, muelles, luminarias, montacargas, gabinetes, barreras, señalización y estación documental con escala común.
+- Señalética renderizada como textura de Canvas local; no depende de recursos remotos.
+- Props relevantes integrados al puzzle, no colocados como decoración encima de otra geometría.
 
-El sector incluye un único escenario funcional: tres muelles, mesa documental, racks con colisión, carril de inspección, tres posiciones de pallet, jaula de cuarentena, montacargas estático, señalización y flujo peatonal. No existe un escenario anterior renderizado debajo.
+## Estándar de animación
+- El jugador es un ingeniero articulado.
+- Idle, walk, run y carry son locomoción continua.
+- Pickup, drop, scan e interact son acciones temporizadas separadas.
+- Scanner visible en la mano durante la acción de lectura.
 
 ## Rendimiento
-
-- Sin postprocesado.
-- Sin assets remotos en runtime.
-- Sin físicas generales.
-- Materiales y geometrías simples reutilizables.
-- Una sola animación ambiental ligera: baliza del montacargas.
-- Iluminación y sombras heredadas del presupuesto global V8.
-
-## Criterio para las siguientes áreas
-
-Producción, Calidad, Mantenimiento, Despacho y CAPA deben reconstruirse con el mismo patrón: módulo propietario de zona, una mecánica principal clara, evidencia previa, decisión física y sustitución completa del prototipo anterior.
+- Sin postprocesado pesado.
+- Sin modelos remotos.
+- Sombras limitadas a objetos que aportan lectura espacial.
+- Materiales y geometrías reutilizados dentro del kit.
+- CI aplica presupuesto de bundle y genera un artefacto `dist/` jugable.
