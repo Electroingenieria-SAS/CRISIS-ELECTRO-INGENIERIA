@@ -122,7 +122,6 @@ export class AdventureWorld {
       this.addFloorArrows(fromX + 2, toX - 2, accent);
     }
 
-    // Exterior walls.
     this.box(104, 3.2, 0.45, 0x26323c, 17, 1.6, -9.4);
     this.box(104, 3.2, 0.45, 0x26323c, 17, 1.6, 9.4);
     this.box(0.45, 3.2, 19.2, 0x26323c, -35.2, 1.6, 0);
@@ -134,7 +133,6 @@ export class AdventureWorld {
       { minX: -36, maxX: 70, minZ: 8.9, maxZ: 10 }
     );
 
-    // Separators. The center is reserved for sliding gates.
     for (const x of [-21, -5, 13, 35, 51]) {
       this.box(0.45, 3.2, 7.2, 0x26323c, x, 1.6, -5.8);
       this.box(0.45, 3.2, 7.2, 0x26323c, x, 1.6, 5.8);
@@ -145,7 +143,6 @@ export class AdventureWorld {
       this.box(0.7, 0.04, 4.2, 0xf4c542, x, 0.03, 0, false);
     }
 
-    // Ceiling-like light bars keep the scene industrial without closing the camera.
     for (let x = -31; x <= 65; x += 8) {
       const lightBar = this.box(3.8, 0.08, 0.16, 0xcbeaff, x, 5.7, 0, false);
       const light = new THREE.PointLight(0xb9dcff, 10, 12, 2.2);
@@ -202,7 +199,6 @@ export class AdventureWorld {
       }
     });
 
-    // Visual command table.
     await this.placeAsset(`${DUNGEON}/table_medium_decorated_A.gltf`, -31.4, 0, 4.8, 0);
     this.addSign('NC-26-0914\nREV. SOLICITADA: B', -31.4, 1.65, 3.7, Math.PI, '#D84A4A', 2.6, 0.9);
   }
@@ -352,7 +348,6 @@ export class AdventureWorld {
       });
     }
 
-    // Visual manufacturing cells.
     for (const [x, z] of [[1.2, 6.6], [6.0, 6.6], [10.6, 6.6]] as Array<[number, number]>) {
       this.box(2.4, 1.4, 1.8, 0x3d4f55, x, 0.7, z);
       this.box(1.5, 0.12, 1.1, 0xf4c542, x, 1.45, z, false);
@@ -566,10 +561,16 @@ export class AdventureWorld {
   private createGate(id: string, x: number, requirement: () => boolean, destination: string, denial: string): void {
     const left = this.box(0.38, 2.7, 2.05, 0x607384, x, 1.35, -1.02);
     const right = this.box(0.38, 2.7, 2.05, 0x607384, x, 1.35, 1.02);
-    const collider: Collider = { minX: x - 0.5, maxX: x + 0.5, minZ: -2.15, maxZ: 2.15, enabled: () => !gate.open };
-    const gate: Gate = { id, left, right, open: false, opening: false, collider };
+    const gate: Gate = {
+      id,
+      left,
+      right,
+      open: false,
+      opening: false,
+      collider: { minX: x - 0.5, maxX: x + 0.5, minZ: -2.15, maxZ: 2.15, enabled: () => !gate.open }
+    };
     this.gates.set(id, gate);
-    this.colliders.push(collider);
+    this.colliders.push(gate.collider);
 
     const consoleObject = this.makeTerminal(x - 1.5, 0, 2.9, '#F4C542', `ACCESO ${destination}`);
     this.addInteractable({
@@ -723,23 +724,24 @@ export class AdventureWorld {
     const group = new THREE.Group();
     group.position.set(x, 0, z);
     const colors = ['#F4C542', '#79BDEE', '#55B985', '#E58D7B', '#A78BE4', '#7FC7B7'];
+    const selectedColor = colors[index % colors.length];
     const card = new THREE.Mesh(
       new THREE.BoxGeometry(0.72, 0.08, 0.96),
-      new THREE.MeshStandardMaterial({ color: new THREE.Color(colors[index % colors.length]), emissive: new THREE.Color(colors[index % colors.length]), emissiveIntensity: 0.32 })
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(selectedColor), emissive: new THREE.Color(selectedColor), emissiveIntensity: 0.32 })
     );
     card.position.y = 0.72;
     card.rotation.x = 0.08;
     group.add(card);
-    const label = this.makeCanvasPlane(title, colors[index % colors.length], 2.15, 0.5);
+    const label = this.makeCanvasPlane(title, selectedColor, 2.15, 0.5);
     label.position.set(0, 1.6, 0);
     group.add(label);
     this.group.add(group);
     return group;
   }
 
-  private async spawnNpc(id: string, x: number, z: number, color: string): Promise<THREE.Object3D> {
+  private async spawnNpc(id: string, x: number, y: number, z: number, color: string): Promise<THREE.Object3D> {
     const model = await this.assets.cloneSkinned(`${CHARACTERS}/Knight.glb`);
-    model.position.set(x, 0, z);
+    model.position.set(x, y, z);
     model.rotation.y = Math.PI;
     model.name = id;
     this.tintModel(model, color);
