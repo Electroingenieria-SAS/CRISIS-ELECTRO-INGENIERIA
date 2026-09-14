@@ -22,16 +22,22 @@ export class RiggedHeroCharacter {
       this.loader.loadAsync(`${base}assets/kaykit/animations/Rig_Medium_General.glb`)
     ]);
 
-    const root = character.scene;
+    const root = new THREE.Group();
     root.name = 'V8_RIGGED_HERO';
-    root.scale.setScalar(0.92);
-    root.rotation.y = Math.PI;
+    const skeletonScene = character.scene;
+    skeletonScene.name = 'V8_RIGGED_HERO_SKELETON';
+    skeletonScene.scale.setScalar(0.92);
+    // KayKit's authored forward axis is opposite the V8 world convention.
+    // Keep the correction on the inner skeleton so Player can rotate `root`
+    // freely toward movement without losing the asset-space correction.
+    skeletonScene.rotation.y = Math.PI;
+    root.add(skeletonScene);
 
-    this.rebuildMaterials(root, accentColor);
-    this.hideMedievalParts(root);
-    this.addIndustrialPPE(root, accentColor);
+    this.rebuildMaterials(skeletonScene, accentColor);
+    this.hideMedievalParts(skeletonScene);
+    this.addIndustrialPPE(skeletonScene, accentColor);
 
-    root.traverse((node) => {
+    skeletonScene.traverse((node) => {
       if (node instanceof THREE.Mesh) {
         node.castShadow = true;
         node.receiveShadow = true;
