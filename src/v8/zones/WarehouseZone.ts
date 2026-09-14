@@ -1,24 +1,11 @@
 import * as THREE from 'three';
 import type { Carryable, Collider, DropSocket, WorldAction } from '../types';
+import { IndustrialKit, INDUSTRIAL_COLORS as C } from '../visual/IndustrialKit';
 
-const C = {
-  yellow: 0xf4c542,
-  yellowDark: 0xb68a1f,
-  blue: 0x1769a6,
-  navy: 0x162630,
-  steel: 0x4a5a62,
-  steelDark: 0x2f3c43,
-  concrete: 0x7f8b8f,
-  floor: 0x59676d,
-  white: 0xe9edef,
-  red: 0xc94f4f,
-  green: 0x4b9b6d,
-  wood: 0x795c3e,
-  cardboard: 0x9b7048,
-  black: 0x161b1e
-};
-
-/** Premium vertical slice for Recepción / Almacén. */
+/**
+ * V8 vertical slice: Recepción / Almacén.
+ * This sector owns its geometry, interactions and collision layout.
+ */
 export class WarehouseZone {
   readonly group = new THREE.Group();
   readonly colliders: Collider[] = [];
@@ -27,7 +14,9 @@ export class WarehouseZone {
   readonly carryables = new Map<string, Carryable>();
   readonly sockets = new Map<string, DropSocket>();
 
+  private readonly kit = new IndustrialKit();
   private beacons: THREE.Mesh[] = [];
+  private fanRotors: THREE.Object3D[] = [];
   private clock = 0;
 
   constructor() {
@@ -35,419 +24,339 @@ export class WarehouseZone {
   }
 
   init(): void {
-    this.buildShell();
-    this.buildReceivingOffice();
-    this.buildDockBays();
-    this.buildStorageRacks();
+    this.buildArchitecture();
+    this.buildReceivingControl();
+    this.buildDockLine();
+    this.buildStorage();
     this.buildInspectionLane();
     this.buildQuarantine();
-    this.buildForklift();
-    this.buildSafetyDetails();
+    this.buildServiceArea();
+    this.buildWayfinding();
   }
 
   update(dt: number): void {
     this.clock += dt;
-    const pulse = 0.22 + (Math.sin(this.clock * 4.5) * 0.5 + 0.5) * 0.5;
+    const pulse = 0.28 + (Math.sin(this.clock * 4.4) * 0.5 + 0.5) * 0.72;
     for (const beacon of this.beacons) {
       const material = beacon.material;
       if (material instanceof THREE.MeshStandardMaterial) material.emissiveIntensity = pulse;
-      beacon.rotation.y += dt * 1.5;
+      beacon.rotation.y += dt * 1.65;
     }
+    for (const rotor of this.fanRotors) rotor.rotation.z += dt * 1.8;
   }
 
-  private buildShell(): void {
-    const floor = this.box(30, 0.16, 25, C.floor, 0.82, 0.06);
-    floor.position.set(-34, 0.05, 10);
-    floor.receiveShadow = true;
+  private buildArchitecture(): void {
+    const floor = this.kit.box(31, 0.16, 25.8, this.kit.materials.floor, false, true);
+    floor.position.set(-34, 0.03, 10.1);
     this.group.add(floor);
 
-    const apron = this.box(31.5, 0.1, 5.2, C.concrete, 0.95, 0.02);
-    apron.position.set(-34, 0.03, 24.4);
-    apron.receiveShadow = true;
+    const apron = this.kit.box(31.6, 0.1, 5.2, this.kit.materials.concrete, false, true);
+    apron.position.set(-34, 0.02, 24.4);
     this.group.add(apron);
 
-    const wallMat = this.mat(0xc9ced0, 0.8, 0.04);
-    const frameMat = this.mat(C.steelDark, 0.5, 0.42);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(30, 4.4, 0.35), wallMat);
-    back.position.set(-34, 2.2, -2.45);
-    back.castShadow = true;
-    back.receiveShadow = true;
+    const back = this.kit.box(30.6, 4.8, 0.3, this.kit.materials.white);
+    back.position.set(-34, 2.4, -2.55);
     this.group.add(back);
-
-    const left = new THREE.Mesh(new THREE.BoxGeometry(0.35, 4.4, 25), wallMat);
-    left.position.set(-49, 2.2, 10);
-    left.castShadow = true;
+    const left = this.kit.box(0.3, 4.8, 25.4, this.kit.materials.white);
+    left.position.set(-49.3, 2.4, 10.1);
     this.group.add(left);
     const right = left.clone();
-    right.position.x = -19;
+    right.position.x = -18.7;
     this.group.add(right);
 
-    for (const x of [-47, -40.5, -34, -27.5, -21]) {
-      const postA = new THREE.Mesh(new THREE.BoxGeometry(0.25, 4.8, 0.28), frameMat);
-      postA.position.set(x, 2.4, -1.8);
-      const postB = postA.clone();
-      postB.position.z = 20.7;
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 22.5), frameMat);
-      beam.position.set(x, 4.65, 9.45);
-      this.group.add(postA, postB, beam);
+    for (const x of [-47.2, -40.6, -34, -27.4, -20.8]) {
+      const columnA = this.kit.box(0.24, 5.25, 0.28, this.kit.materials.steelDark);
+      columnA.position.set(x, 2.62, -1.9);
+      const columnB = columnA.clone();
+      columnB.position.z = 21.1;
+      const beam = this.kit.box(0.24, 0.22, 23.2, this.kit.materials.steelDark);
+      beam.position.set(x, 4.86, 9.6);
+      this.group.add(columnA, columnB, beam);
     }
 
-    const stripeMat = new THREE.MeshBasicMaterial({ color: C.yellow });
-    for (const z of [21.7, -1.25]) {
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(29, 0.025, 0.14), stripeMat);
-      stripe.position.set(-34, 0.15, z);
-      this.group.add(stripe);
+    for (const z of [2.2, 9.6, 17.1]) {
+      const brace = this.kit.box(29.2, 0.14, 0.18, this.kit.materials.steel);
+      brace.position.set(-34, 4.82, z);
+      this.group.add(brace);
     }
+
+    for (const x of [-44, -34, -24]) {
+      const lamp = this.kit.overheadLight(3.0);
+      lamp.position.set(x, 4.52, 8.2);
+      this.group.add(lamp);
+      const lamp2 = this.kit.overheadLight(3.0);
+      lamp2.position.set(x, 4.52, 16.1);
+      this.group.add(lamp2);
+    }
+
+    const officeGlass = this.kit.box(8.2, 2.4, 0.08, this.kit.materials.glass, false, false);
+    officeGlass.position.set(-44.4, 2.0, 6.35);
+    this.group.add(officeGlass);
 
     this.colliders.push(
-      { minX: -49.6, maxX: -48.55, minZ: -2.8, maxZ: 22.2 },
-      { minX: -19.45, maxX: -18.4, minZ: -2.8, maxZ: 22.2 },
-      { minX: -49.5, maxX: -18.5, minZ: -2.9, maxZ: -1.8 }
+      { minX: -49.8, maxX: -48.7, minZ: -3.0, maxZ: 22.8 },
+      { minX: -19.3, maxX: -18.2, minZ: -3.0, maxZ: 22.8 },
+      { minX: -49.7, maxX: -18.3, minZ: -3.0, maxZ: -1.9 }
     );
-
-    this.sign('RECEPCIÓN / ALMACÉN', new THREE.Vector3(-34, 4.15, -2.08), C.yellow, 7.4);
-    this.sign('FLUJO PEATONAL', new THREE.Vector3(-34, 0.23, 23.6), C.yellow, 3.3);
   }
 
-  private buildReceivingOffice(): void {
-    const desk = this.box(5.4, 0.82, 2.3, 0x394950, 0.62, 0.18);
-    desk.position.set(-44.8, 0.42, 4.3);
-    desk.castShadow = true;
-    this.group.add(desk);
+  private buildReceivingControl(): void {
+    const station = this.kit.workstation();
+    station.position.set(-44.2, 0, 4.2);
+    station.rotation.y = Math.PI;
+    this.group.add(station);
 
-    const counter = this.box(5.7, 0.14, 2.55, 0xc7ced0, 0.34, 0.06);
-    counter.position.set(-44.8, 0.9, 4.3);
-    this.group.add(counter);
+    const cabinet = this.kit.toolCabinet(this.kit.materials.blue);
+    cabinet.position.set(-47.5, 0, 5.1);
+    cabinet.rotation.y = Math.PI / 2;
+    this.group.add(cabinet);
 
-    const screen = this.box(1.5, 0.92, 0.12, C.navy, 0.42, 0.12);
-    screen.position.set(-44.5, 1.55, 4.05);
-    screen.rotation.x = -0.1;
-    this.group.add(screen);
-    const glow = this.box(1.2, 0.64, 0.025, C.blue, 0.28, 0.04);
-    glow.position.set(-44.5, 1.55, 3.98);
-    const glowMat = glow.material as THREE.MeshStandardMaterial;
-    glowMat.emissive.setHex(C.blue);
-    glowMat.emissiveIntensity = 0.22;
-    this.group.add(glow);
-
-    for (let i = 0; i < 3; i++) {
-      const sheet = this.box(0.85, 0.025, 0.58, 0xf0eee3, 0.88, 0);
-      sheet.position.set(-43.0 + i * 0.24, 1.0 + i * 0.025, 4.35 - i * 0.06);
-      sheet.rotation.y = -0.12 + i * 0.08;
-      this.group.add(sheet);
-    }
-
-    const mateo = this.worker(-46.5, 3.2);
-    this.addAction('npc-mateo', 'Hablar con Mateo · Recepción', mateo, 2.1);
+    const mateo = this.worker(-46.4, 3.2, C.blue);
+    this.addAction('npc-mateo', 'Hablar con Mateo · Recepción', mateo, 2.15);
 
     const docsAnchor = new THREE.Group();
-    docsAnchor.position.set(-43.8, 0, 5.2);
+    docsAnchor.position.set(-42.65, 0, 4.9);
     this.group.add(docsAnchor);
     this.marker(docsAnchor, C.blue, 2.25);
-    this.addAction('warehouse-docs', 'Revisar Pedido / Remisión / COA', docsAnchor, 2.15, false);
+    this.addAction('warehouse-docs', 'Revisar Pedido / Remisión / COA', docsAnchor, 2.2, false);
 
-    this.sign('CONTROL DOCUMENTAL', new THREE.Vector3(-44.8, 2.55, 3.2), C.blue, 3.8);
+    const docTray = this.kit.box(1.15, 0.08, 0.82, this.kit.materials.black);
+    docTray.position.set(-42.65, 1.12, 4.2);
+    this.group.add(docTray);
+    for (let i = 0; i < 3; i++) {
+      const page = this.kit.box(0.86, 0.015, 0.58, this.kit.materials.white, false, false);
+      page.position.set(-42.65 + i * 0.035, 1.18 + i * 0.018, 4.18 - i * 0.025);
+      page.rotation.y = -0.08 + i * 0.04;
+      this.group.add(page);
+    }
+
+    const sign = this.kit.sign('CONTROL DOCUMENTAL', 4.15, 0.64, '#173346', '#ffffff', '#f3c83f');
+    sign.position.set(-44.15, 3.35, 6.28);
+    this.group.add(sign);
   }
 
-  private buildDockBays(): void {
-    const doorMat = this.mat(0x77868c, 0.55, 0.32);
-    const rubberMat = this.mat(C.black, 0.9, 0.02);
-    const bayXs = [-44, -34, -24];
-
-    bayXs.forEach((x, index) => {
-      const door = new THREE.Group();
-      door.position.set(x, 0, -2.18);
-      for (let y = 0; y < 6; y++) {
-        const slat = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.58, 0.12), doorMat);
-        slat.position.y = 0.42 + y * 0.56;
-        door.add(slat);
-      }
-      const header = this.box(6.7, 0.26, 0.35, C.steelDark, 0.45, 0.35);
-      header.position.set(0, 3.8, 0);
-      door.add(header);
-      const bumperL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.2, 0.5), rubberMat);
-      bumperL.position.set(-3.25, 0.62, 0.25);
-      const bumperR = bumperL.clone();
-      bumperR.position.x = 3.25;
-      door.add(bumperL, bumperR);
+  private buildDockLine(): void {
+    const xs = [-44, -34, -24];
+    xs.forEach((x, index) => {
+      const door = this.kit.dockDoor(`MUELLE 0${index + 1}`, 6.05);
+      door.position.set(x, 0, -2.28);
       this.group.add(door);
-      this.sign(`MUELLE 0${index + 1}`, new THREE.Vector3(x, 3.42, -1.92), C.yellow, 2.35);
+
+      const dockPlate = this.kit.box(4.9, 0.12, 1.55, this.kit.materials.steelDark);
+      dockPlate.position.set(x, 0.15, -0.8);
+      dockPlate.rotation.x = -0.045;
+      this.group.add(dockPlate);
+
+      const beaconBase = this.kit.box(0.16, 0.24, 0.16, this.kit.materials.steelDark);
+      beaconBase.position.set(x + 2.75, 3.45, -1.98);
+      this.group.add(beaconBase);
+      const beaconMaterial = new THREE.MeshStandardMaterial({ color: 0xf15d4a, emissive: 0xf15d4a, emissiveIntensity: 0.5, roughness: 0.32 });
+      const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.18, 12), beaconMaterial);
+      beacon.position.set(x + 2.75, 3.68, -1.98);
+      this.group.add(beacon);
+      this.beacons.push(beacon);
     });
   }
 
-  private buildStorageRacks(): void {
-    const uprightGeo = new THREE.BoxGeometry(0.16, 3.5, 0.16);
-    const beamGeo = new THREE.BoxGeometry(4.1, 0.14, 0.18);
-    const uprightMat = this.mat(0x31506a, 0.55, 0.3);
-    const beamMat = this.mat(C.yellowDark, 0.58, 0.22);
-    const shelfMat = this.mat(0x6b7578, 0.76, 0.24);
+  private buildStorage(): void {
+    const rackPositions: Array<[number, number, number]> = [
+      [-45.6, 10.2, Math.PI / 2],
+      [-45.6, 15.3, Math.PI / 2],
+      [-22.65, 7.0, Math.PI / 2],
+      [-22.65, 12.0, Math.PI / 2]
+    ];
 
-    const buildRack = (x: number, z: number) => {
-      const rack = new THREE.Group();
+    for (const [x, z, rot] of rackPositions) {
+      const rack = this.kit.rack(4.5, 3.7, 1.5, 3);
       rack.position.set(x, 0, z);
-      for (const dx of [-1.95, 1.95]) {
-        for (const dz of [-0.62, 0.62]) {
-          const upright = new THREE.Mesh(uprightGeo, uprightMat);
-          upright.position.set(dx, 1.75, dz);
-          rack.add(upright);
-        }
-      }
-      for (const y of [1.1, 2.15, 3.2]) {
-        for (const dz of [-0.62, 0.62]) {
-          const beam = new THREE.Mesh(beamGeo, beamMat);
-          beam.position.set(0, y, dz);
-          rack.add(beam);
-        }
-        const shelf = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.08, 1.1), shelfMat);
-        shelf.position.set(0, y + 0.06, 0);
-        rack.add(shelf);
-      }
-      rack.traverse((node) => { if (node instanceof THREE.Mesh) node.castShadow = true; });
+      rack.rotation.y = rot;
       this.group.add(rack);
-    };
-
-    buildRack(-45.7, 10.1);
-    buildRack(-45.7, 15.0);
-    buildRack(-22.7, 7.0);
-    buildRack(-22.7, 12.0);
+      for (let level = 0; level < 2; level++) {
+        for (let col = -1; col <= 1; col++) {
+          const crate = this.kit.crate(0.64, 0.48, 0.5);
+          crate.position.set(x + 0.15 * level, 1.28 + level * 1.02, z + col * 0.68);
+          crate.rotation.y = rot;
+          this.group.add(crate);
+        }
+      }
+    }
 
     this.colliders.push(
-      { minX: -48.1, maxX: -43.3, minZ: 9.1, maxZ: 11.1 },
-      { minX: -48.1, maxX: -43.3, minZ: 14.0, maxZ: 16.0 },
-      { minX: -25.1, maxX: -20.3, minZ: 6.0, maxZ: 8.0 },
-      { minX: -25.1, maxX: -20.3, minZ: 11.0, maxZ: 13.0 }
+      { minX: -47.1, maxX: -44.1, minZ: 7.7, maxZ: 12.7 },
+      { minX: -47.1, maxX: -44.1, minZ: 12.8, maxZ: 17.8 },
+      { minX: -24.2, maxX: -21.2, minZ: 4.5, maxZ: 9.5 },
+      { minX: -24.2, maxX: -21.2, minZ: 9.5, maxZ: 14.5 }
     );
   }
 
   private buildInspectionLane(): void {
-    const lane = this.box(17.5, 0.035, 7.0, 0x46565d, 0.93, 0.02);
-    lane.position.set(-34.3, 0.14, 9.4);
+    const lane = this.kit.box(18.6, 0.035, 7.45, this.kit.materials.steelDark, false, true);
+    lane.position.set(-34.1, 0.13, 9.35);
     this.group.add(lane);
 
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xe1c83d });
-    for (const x of [-42.5, -34.2, -25.9]) {
-      const outlineA = new THREE.Mesh(new THREE.BoxGeometry(5.7, 0.02, 0.08), lineMat);
-      outlineA.position.set(x, 0.18, 6.65);
-      const outlineB = outlineA.clone();
-      outlineB.position.z = 12.1;
-      const sideA = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 5.5), lineMat);
-      sideA.position.set(x - 2.8, 0.18, 9.38);
-      const sideB = sideA.clone();
-      sideB.position.x = x + 2.8;
-      this.group.add(outlineA, outlineB, sideA, sideB);
+    const header = this.kit.sign('INSPECCIÓN DE RECIBO · VERIFICAR ANTES DE LIBERAR', 8.4, 0.62, '#253a45', '#ffffff', '#f3c83f');
+    header.position.set(-34.1, 3.65, 14.95);
+    this.group.add(header);
+
+    const positions: Array<[string, number, THREE.Material]> = [
+      ['A', -42.3, this.kit.materials.blue],
+      ['B', -34.1, this.kit.materials.cardboard],
+      ['C', -25.9, this.kit.materials.steel]
+    ];
+
+    for (const [code, x, material] of positions) {
+      const outline = this.kit.floorDecal(`PALLET ${code}`, 5.6, 5.15, '#47565d', '#f3c83f');
+      outline.position.set(x, 0.175, 9.35);
+      this.group.add(outline);
+      const pallet = this.kit.pallet(code, material);
+      pallet.position.set(x, 0, 9.35);
+      this.group.add(pallet);
+      const id = `pallet-${code.toLowerCase()}`;
+      this.addScan(id, `Escanear Pallet ${code}`, pallet, 4.15);
+      const label = code === 'A' ? 'Pallet A · L-0908-A' : code === 'B' ? 'Pallet B · L-0908-B' : 'Pallet C · L-0906-C';
+      this.carryables.set(id, { id, label, object: pallet, radius: 2.25, home: [x, 0, 9.35] });
     }
 
-    const palletA = this.pallet(-42.5, 9.4, 0x507fa1, 'A');
-    const palletB = this.pallet(-34.2, 9.4, 0xa46c3e, 'B');
-    const palletC = this.pallet(-25.9, 9.4, 0x665b52, 'C');
-
-    this.addScan('pallet-a', 'Escanear Pallet A', palletA, 4.2);
-    this.addScan('pallet-b', 'Escanear Pallet B', palletB, 4.2);
-    this.addScan('pallet-c', 'Escanear Pallet C', palletC, 4.2);
-
-    this.carryables.set('pallet-a', { id: 'pallet-a', label: 'Pallet A · L-0908-A', object: palletA, radius: 2.1, home: [-42.5, 0, 9.4] });
-    this.carryables.set('pallet-b', { id: 'pallet-b', label: 'Pallet B · L-0908-B', object: palletB, radius: 2.1, home: [-34.2, 0, 9.4] });
-    this.carryables.set('pallet-c', { id: 'pallet-c', label: 'Pallet C · L-0906-C', object: palletC, radius: 2.1, home: [-25.9, 0, 9.4] });
-
-    this.sign('ÁREA DE INSPECCIÓN DE RECIBO', new THREE.Vector3(-34.2, 2.75, 15.5), C.yellow, 5.1);
+    for (const x of [-46.8, -21.4]) {
+      const barrier = this.kit.barrier(2.0);
+      barrier.position.set(x, 0, 5.8);
+      barrier.rotation.y = Math.PI / 2;
+      this.group.add(barrier);
+    }
   }
 
   private buildQuarantine(): void {
-    const x = -43.7;
-    const z = 18.7;
-    const floor = this.box(7.2, 0.08, 4.2, 0x5a3f42, 0.9, 0.02);
-    floor.position.set(x, 0.12, z);
+    const x = -43.6;
+    const z = 19.0;
+    const floor = this.kit.floorDecal('CUARENTENA', 7.2, 4.0, '#6a3438', '#ffffff');
+    floor.position.set(x, 0.17, z);
     this.group.add(floor);
 
-    const cageMat = this.mat(0x555f63, 0.48, 0.58);
-    const rail = (px: number, pz: number, w: number, d: number) => {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(w, 1.55, d), cageMat);
-      bar.position.set(px, 0.82, pz);
-      bar.castShadow = true;
-      this.group.add(bar);
+    const cageRail = (px: number, pz: number, w: number, d: number) => {
+      const rail = this.kit.box(w, 1.65, d, this.kit.materials.steelDark);
+      rail.position.set(px, 0.86, pz);
+      this.group.add(rail);
     };
-    rail(x - 3.5, z, 0.12, 4.2);
-    rail(x + 3.5, z, 0.12, 4.2);
-    rail(x, z + 2.0, 7.1, 0.12);
+    cageRail(x - 3.55, z, 0.1, 4.1);
+    cageRail(x + 3.55, z, 0.1, 4.1);
+    cageRail(x, z + 2.0, 7.15, 0.1);
 
-    for (let i = 0; i < 4; i++) {
-      const hazard = this.box(0.65, 0.03, 0.12, i % 2 === 0 ? C.yellow : C.black, 0.8, 0);
-      hazard.position.set(x - 2.4 + i * 1.6, 0.18, z - 2.0);
-      hazard.rotation.y = -0.55;
-      this.group.add(hazard);
+    const sign = this.kit.sign('MATERIAL BLOQUEADO', 4.2, 0.62, '#8b2f36', '#ffffff', '#f3c83f');
+    sign.position.set(x, 2.05, z + 2.03);
+    this.group.add(sign);
+
+    for (const dx of [-2.5, 2.5]) {
+      const cone = this.kit.cone();
+      cone.position.set(x + dx, 0, z - 1.45);
+      this.group.add(cone);
     }
 
     const socket = new THREE.Group();
     socket.position.set(x, 0, z);
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 1.65, 0.06, 24), this.mat(C.red, 0.62, 0.08));
-    pad.position.y = 0.18;
-    const padMat = pad.material as THREE.MeshStandardMaterial;
-    padMat.emissive.setHex(C.red);
-    padMat.emissiveIntensity = 0.08;
-    socket.add(pad);
     this.group.add(socket);
-    this.sockets.set('quarantine', { id: 'quarantine', label: 'Cuarentena controlada', object: socket, radius: 2.9 });
-
-    this.sign('CUARENTENA', new THREE.Vector3(x, 2.5, z + 1.85), C.red, 3.4);
+    this.marker(socket, C.red, 2.4);
+    this.sockets.set('quarantine', { id: 'quarantine', label: 'CUARENTENA', object: socket, radius: 3.0 });
   }
 
-  private buildForklift(): void {
-    const g = new THREE.Group();
-    g.position.set(-23.6, 0, 17.6);
-    g.rotation.y = Math.PI * 0.12;
+  private buildServiceArea(): void {
+    const forklift = this.kit.forklift();
+    forklift.position.set(-27.0, 0, 18.25);
+    forklift.rotation.y = -Math.PI / 2;
+    this.group.add(forklift);
+    this.colliders.push({ minX: -28.6, maxX: -25.4, minZ: 16.6, maxZ: 20.1 });
 
-    const body = this.box(2.1, 1.2, 2.5, C.yellowDark, 0.48, 0.14);
-    body.position.y = 0.85;
-    const counter = this.box(2.0, 0.8, 1.0, 0xd2a72f, 0.5, 0.12);
-    counter.position.set(0, 1.45, 0.72);
-    const mast = this.box(0.18, 3.0, 0.18, C.steelDark, 0.4, 0.62);
-    mast.position.set(-0.72, 1.55, -1.35);
-    const mast2 = mast.clone();
-    mast2.position.x = 0.72;
-    const cross = this.box(1.7, 0.18, 0.18, C.steelDark, 0.4, 0.62);
-    cross.position.set(0, 2.6, -1.35);
-    const forkL = this.box(0.14, 0.1, 2.2, C.steelDark, 0.38, 0.7);
-    forkL.position.set(-0.48, 0.24, -2.2);
-    const forkR = forkL.clone();
-    forkR.position.x = 0.48;
-    g.add(body, counter, mast, mast2, cross, forkL, forkR);
+    const cabinetA = this.kit.toolCabinet(this.kit.materials.blue);
+    cabinetA.position.set(-20.6, 0, 17.4);
+    cabinetA.rotation.y = -Math.PI / 2;
+    this.group.add(cabinetA);
+    const cabinetB = this.kit.toolCabinet(this.kit.materials.yellowDark);
+    cabinetB.position.set(-20.6, 0, 19.0);
+    cabinetB.rotation.y = -Math.PI / 2;
+    this.group.add(cabinetB);
 
-    const wheelMat = this.mat(C.black, 0.92, 0.02);
-    for (const x of [-0.9, 0.9]) for (const z of [-0.72, 0.74]) {
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.28, 12), wheelMat);
-      wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(x, 0.38, z);
-      g.add(wheel);
+    const fanHousing = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.16, 24), this.kit.materials.steelDark);
+    fanHousing.rotation.x = Math.PI / 2;
+    fanHousing.position.set(-20.0, 3.4, 2.6);
+    this.group.add(fanHousing);
+    const rotor = new THREE.Group();
+    rotor.position.set(-19.9, 3.4, 2.6);
+    rotor.rotation.y = Math.PI / 2;
+    for (let i = 0; i < 4; i++) {
+      const blade = this.kit.box(0.48, 0.07, 0.18, this.kit.materials.steel, false, false);
+      blade.position.x = 0.24;
+      const arm = new THREE.Group();
+      arm.rotation.z = i * Math.PI / 2;
+      arm.add(blade);
+      rotor.add(arm);
     }
-
-    const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 0.24, 10), this.mat(C.yellow, 0.34, 0.04));
-    beacon.position.set(0, 2.12, 0.72);
-    const beaconMat = beacon.material as THREE.MeshStandardMaterial;
-    beaconMat.emissive.setHex(C.yellow);
-    beaconMat.emissiveIntensity = 0.35;
-    g.add(beacon);
-    this.beacons.push(beacon);
-
-    g.traverse((node) => { if (node instanceof THREE.Mesh) node.castShadow = true; });
-    this.group.add(g);
-    this.colliders.push({ minX: -25.2, maxX: -21.8, minZ: 15.5, maxZ: 20.2 });
+    this.group.add(rotor);
+    this.fanRotors.push(rotor);
   }
 
-  private buildSafetyDetails(): void {
-    const bollardMat = this.mat(C.yellow, 0.5, 0.14);
-    for (const [x, z] of [[-48.1, 2.0], [-41.0, 2.0], [-37.0, 2.0], [-31.0, 2.0], [-27.0, 2.0], [-19.9, 2.0]] as Array<[number, number]>) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.95, 10), bollardMat);
-      post.position.set(x, 0.48, z);
-      post.castShadow = true;
-      this.group.add(post);
-    }
+  private buildWayfinding(): void {
+    const zone = this.kit.sign('RECEPCIÓN / ALMACÉN', 7.2, 0.8, '#173346', '#ffffff', '#f3c83f');
+    zone.position.set(-34, 4.12, -2.32);
+    this.group.add(zone);
 
-    for (const z of [17.0, 20.0, 23.0]) {
-      const stem = this.box(0.16, 0.02, 1.8, C.yellow, 0.9, 0);
-      stem.position.set(-34, 0.17, z);
-      const head = new THREE.Mesh(new THREE.ConeGeometry(0.48, 1.0, 3), new THREE.MeshBasicMaterial({ color: C.yellow }));
-      head.rotation.x = Math.PI / 2;
-      head.position.set(-34, 0.19, z - 1.15);
-      this.group.add(stem, head);
+    const pedestrian = this.kit.floorDecal('RUTA PEATONAL', 8.8, 1.0, '#405158', '#f3c83f');
+    pedestrian.position.set(-34, 0.18, 23.5);
+    this.group.add(pedestrian);
+
+    for (let x = -46; x <= -22; x += 3.2) {
+      const stripe = this.kit.box(1.45, 0.018, 0.12, this.kit.materials.yellow, false, false);
+      stripe.position.set(x, 0.19, 22.1);
+      this.group.add(stripe);
     }
   }
 
-  private worker(x: number, z: number): THREE.Group {
-    const g = new THREE.Group();
-    g.position.set(x, 0, z);
-    const pants = this.mat(0x334149, 0.82, 0.02);
-    const vest = this.mat(C.yellow, 0.58, 0.04);
-    const skin = this.mat(0xd3a078, 0.78, 0);
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.84, 0.4), vest);
-    torso.position.y = 1.45;
-    const reflective = this.box(0.78, 0.07, 0.43, C.white, 0.35, 0.05);
-    reflective.position.y = 1.52;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), skin);
-    head.position.y = 2.1;
-    const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.36, 0.2, 12), this.mat(C.yellow, 0.48, 0.05));
-    helmet.position.y = 2.37;
-    const legA = this.box(0.26, 0.85, 0.3, 0x334149, 0.82, 0.02);
-    legA.position.set(-0.19, 0.65, 0);
-    const legB = legA.clone();
-    legB.position.x = 0.19;
-    g.add(torso, reflective, head, helmet, legA, legB);
-    g.traverse((node) => { if (node instanceof THREE.Mesh) node.castShadow = true; });
-    this.group.add(g);
-    return g;
+  private worker(x: number, z: number, accent: number): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+    const pants = new THREE.MeshStandardMaterial({ color: 0x2e3940, roughness: 0.8 });
+    const shirt = new THREE.MeshStandardMaterial({ color: 0x173346, roughness: 0.65 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xd6a078, roughness: 0.75 });
+    const vest = new THREE.MeshStandardMaterial({ color: 0xf3c83f, roughness: 0.5 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5, emissive: accent, emissiveIntensity: 0.08 });
+
+    const legL = this.kit.box(0.24, 0.82, 0.26, pants);
+    legL.position.set(-0.15, 0.46, 0);
+    const legR = legL.clone();
+    legR.position.x = 0.15;
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.58, 4, 10), shirt);
+    torso.position.y = 1.43;
+    torso.scale.z = 0.7;
+    const vestMesh = this.kit.box(0.72, 0.62, 0.17, vest);
+    vestMesh.position.set(0, 1.44, 0.3);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), skin);
+    head.position.y = 2.15;
+    const helmet = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.18, 14), vest);
+    helmet.position.y = 2.42;
+    const badge = this.kit.box(0.14, 0.19, 0.025, accentMat);
+    badge.position.set(0.2, 1.58, 0.395);
+    group.add(legL, legR, torso, vestMesh, head, helmet, badge);
+    group.traverse((node) => { if (node instanceof THREE.Mesh) node.castShadow = true; });
+    return group;
   }
 
-  private pallet(x: number, z: number, color: number, label: string): THREE.Group {
-    const g = new THREE.Group();
-    g.position.set(x, 0, z);
-    const base = this.box(2.45, 0.2, 1.75, C.wood, 0.94, 0);
-    base.position.y = 0.12;
-    g.add(base);
-    const boxMat = this.mat(color, 0.78, 0.01);
-    for (let row = 0; row < 2; row++) for (const col of [-0.58, 0.58]) {
-      const box = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.74, 1.35), boxMat);
-      box.position.set(col, 0.56 + row * 0.75, 0);
-      box.castShadow = true;
-      g.add(box);
-    }
-    const tag = this.box(1.0, 0.42, 0.03, C.white, 0.42, 0);
-    tag.position.set(0, 1.2, 0.70);
-    g.add(tag);
-    this.sign(`PALLET ${label}`, new THREE.Vector3(0, 2.12, 0), color, 2.4, g);
-    this.group.add(g);
-    return g;
+  private marker(parent: THREE.Object3D, color: number, y: number): void {
+    const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.45, roughness: 0.3 });
+    const marker = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), material);
+    marker.position.y = y;
+    parent.add(marker);
+    parent.userData.marker = marker;
+    this.beacons.push(marker);
   }
 
   private addAction(id: string, prompt: string, object: THREE.Object3D, radius: number, addMarker = true): void {
-    if (addMarker) this.marker(object, C.yellow, 2.55);
+    if (addMarker && !object.userData.marker) this.marker(object, C.yellow, 2.55);
     this.actions.push({ id, prompt, object, radius });
   }
 
   private addScan(id: string, prompt: string, object: THREE.Object3D, radius: number): void {
-    this.scannables.push({ id, prompt, object, radius });
-  }
-
-  private marker(parent: THREE.Object3D, color: number, y: number): void {
-    const marker = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.045, 8, 20), new THREE.MeshBasicMaterial({ color }));
-    marker.rotation.x = Math.PI / 2;
-    marker.position.y = y;
-    parent.add(marker);
-    parent.userData.marker = marker;
-  }
-
-  private sign(text: string, position: THREE.Vector3, color: number, width: number, parent: THREE.Object3D = this.group): void {
-    const sprite = this.labelSprite(text, color, width);
-    sprite.position.copy(position);
-    parent.add(sprite);
-  }
-
-  private labelSprite(text: string, color: number, width: number): THREE.Sprite {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = 'rgba(12,22,27,.9)';
-    ctx.roundRect(6, 10, 500, 108, 16);
-    ctx.fill();
-    ctx.strokeStyle = `#${color.toString(16).padStart(6, '0')}`;
-    ctx.lineWidth = 5;
-    ctx.stroke();
-    ctx.fillStyle = '#f6f8f9';
-    ctx.font = '700 36px system-ui';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, 256, 65, 470);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: true }));
-    sprite.scale.set(width, width * 0.25, 1);
-    return sprite;
-  }
-
-  private box(w: number, h: number, d: number, color: number, roughness: number, metalness: number): THREE.Mesh {
-    return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), this.mat(color, roughness, metalness));
-  }
-
-  private mat(color: number, roughness: number, metalness: number): THREE.MeshStandardMaterial {
-    return new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    const anchor = new THREE.Group();
+    anchor.position.set(0, 0.6, 0);
+    object.add(anchor);
+    this.marker(anchor, C.blue, 1.55);
+    this.scannables.push({ id, prompt, object: anchor, radius });
   }
 }
