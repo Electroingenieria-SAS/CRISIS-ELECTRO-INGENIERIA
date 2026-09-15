@@ -4,6 +4,7 @@ import { DoorComponent } from './gameplay/DoorComponent';
 import { DEFAULT_CARRY_CONFIG, type CarryConfig } from './gameplay/GameplayComponents';
 import { KinematicPhysicsWorld } from './gameplay/KinematicPhysicsWorld';
 import { GameLogger } from './gameplay/GameLogger';
+import type { WorldContextTarget } from './types';
 import { installVerticalSliceFurnitureColliders } from './world/ZoneCollisionProfiles';
 
 /**
@@ -14,6 +15,7 @@ import { installVerticalSliceFurnitureColliders } from './world/ZoneCollisionPro
 export class World extends EnvironmentWorld {
   private readonly physics = new KinematicPhysicsWorld(this.colliders);
   private readonly doors: DoorComponent[] = [];
+  private readonly lastPlayerForward = new THREE.Vector3(0, 0, 1);
 
   override init(): void {
     super.init();
@@ -28,6 +30,22 @@ export class World extends EnvironmentWorld {
     for (const door of this.doors) door.update(dt);
     this.physics.step(dt);
     super.update(dt, playerPosition);
+  }
+
+  override resolvePlayerMovement(current: THREE.Vector3, desired: THREE.Vector3, radius = 0.42): THREE.Vector3 {
+    const dx = desired.x - current.x;
+    const dz = desired.z - current.z;
+    if (dx * dx + dz * dz > 0.0001) this.lastPlayerForward.set(dx, 0, dz).normalize();
+    return super.resolvePlayerMovement(current, desired, radius);
+  }
+
+  override nearestContext(position: THREE.Vector3): WorldContextTarget | null {
+    return this.registry.nearest(
+      position,
+      ['pickup', 'door', 'container', 'puzzle', 'movable', 'carryable', 'breakable', 'interactable'],
+      3.0,
+      this.lastPlayerForward
+    );
   }
 
   bodyState(id: string): string | null {
@@ -68,11 +86,7 @@ export class World extends EnvironmentWorld {
     this.doors.push(door);
   }
 
-  /**
-   * V8's optional lever loader hid the procedural pivot because every fallback
-   * child was considered replaceable. Mark functional children before the async
-   * GLTF returns, so visual decoration can never erase the actual mechanism.
-   */
+  /** Protect V8 functional lever children before the optional GLTF arrives. */
   private protectFunctionalLever(): void {
     const entry = this.registry.get('control-training-lever');
     if (!entry?.state) return;
@@ -89,6 +103,13 @@ export class World extends EnvironmentWorld {
       child.userData.gameplayEssential = true;
     }
     entry.object.userData.objectState = 'INACTIVE';
+    entry.interaction = {
+      point: entry.object,
+      maxDistance: entry.radius ?? 1.7,
+      maxFacingAngle: Math.PI * 0.50,
+      alignDistance: 1.0,
+      requiresFacing: true
+    };
   }
 
   private registerCarryableBodies(): void {
