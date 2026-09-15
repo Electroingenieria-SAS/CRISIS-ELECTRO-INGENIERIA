@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { HeroAppearance } from '../types';
-import { EngineerHeroCharacter, type EngineerHeroAsset } from './EngineerHeroCharacter';
+import { EngineerHeroCharacterV2, type EngineerHeroAssetV2 } from './EngineerHeroCharacterV2';
 
 /** Live preview of the exact same KayKit engineer used during gameplay. */
 export class HeroCustomizerPreview {
@@ -8,7 +8,7 @@ export class HeroCustomizerPreview {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(31, 1, 0.1, 30);
   private readonly clock = new THREE.Clock();
-  private current: EngineerHeroAsset | null = null;
+  private current: EngineerHeroAssetV2 | null = null;
   private frame = 0;
   private generation = 0;
   private disposed = false;
@@ -70,7 +70,6 @@ export class HeroCustomizerPreview {
     ring.position.y = 0.02;
     this.scene.add(ring);
 
-    // Frontal evaluation view; drag horizontally to inspect silhouette and PPE.
     this.camera.position.set(0.18, 1.86, 4.85);
     this.camera.lookAt(0, 1.28, 0);
 
@@ -87,7 +86,7 @@ export class HeroCustomizerPreview {
   async setAppearance(appearance: HeroAppearance): Promise<void> {
     const generation = ++this.generation;
     try {
-      const next = await new EngineerHeroCharacter().load(appearance);
+      const next = await new EngineerHeroCharacterV2().load(appearance);
       if (this.disposed || generation !== this.generation) {
         next.animator.dispose();
         return;
@@ -106,7 +105,7 @@ export class HeroCustomizerPreview {
       this.host.classList.add('is-ready');
       this.host.classList.remove('is-error');
     } catch (error) {
-      console.warn('[V8] Engineer hero customizer preview unavailable.', error);
+      console.warn('[V8] Engineer hero V2 customizer preview unavailable.', error);
       this.host.classList.add('is-error');
     }
   }
