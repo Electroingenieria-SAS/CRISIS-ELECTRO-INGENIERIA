@@ -90,6 +90,19 @@ export class DamageSystem {
       // STATIC/DECORATION: impact feedback only. Never hide/remove.
     }
 
+    // World architecture (walls, fences, furniture collision profiles) does not
+    // need a registry component just to receive a harmless strike. If no gameplay
+    // entity was hit, test the authoritative AABBs and generate material feedback.
+    if (!reactedIds.length) {
+      const staticHit = this.nearestStaticColliderHit(origin, normalized, range);
+      if (staticHit) {
+        const material = this.colliderMaterial(staticHit.collider);
+        reactedIds.push(`static:${staticHit.collider.id}`);
+        this.spawnImpact(staticHit.point, material, normalized);
+        this.emitImpactAudio(material);
+      }
+    }
+
     return { hit: reactedIds.length > 0, damagedIds, destroyedIds, reactedIds };
   }
 
@@ -115,6 +128,32 @@ export class DamageSystem {
     if (name.includes('crate') || name.includes('caja') || name.includes('target')) return 'WOOD';
     if (name.includes('rock') || name.includes('stone')) return 'STONE';
     if (name.includes('plant') || name.includes('tree')) return 'VEGETATION';
+    return 'GENERIC';
+  }
+
+  private nearestStaticColliderHit(origin: THREE.Vector3, forward: THREE.Vector3, range: number): { collider: Collider; point: THREE.Vector3 } | null {
+    let best: { collider: Collider; point: THREE.Vector3; distance: number } | null = null;
+    for (const collider of this.colliders) {
+      if (collider.enabled === false || collider.id.startsWith('body:')) continue;
+      const x = THREE.MathUtils.clamp(origin.x, collider.minX, collider.maxX);
+      const z = THREE.MathUtils.clamp(origin.z, collider.minZ, collider.maxZ);
+      const point = new THREE.Vector3(x, 0.55, z);
+      const toPoint = point.clone().sub(origin).setY(0);
+      const distance = toPoint.length();
+      if (distance <= 0.001 || distance > range) continue;
+      toPoint.normalize();
+      if (toPoint.dot(forward) < 0.42) continue;
+      if (!best || distance < best.distance) best = { collider, point, distance };
+    }
+    return best ? { collider: best.collider, point: best.point } : null;
+  }
+
+  private colliderMaterial(collider: Collider): SurfaceMaterial {
+    const text = `${collider.id} ${collider.debugLabel ?? ''}`.toLowerCase();
+    if (text.includes('door') || text.includes('fence') || text.includes('rack') || text.includes('machine') || text.includes('steel')) return 'METAL';
+    if (text.includes('crate') || text.includes('wood') || text.includes('pallet')) return 'WOOD';
+    if (text.includes('rock') || text.includes('stone') || text.includes('wall') || text.includes('concrete')) return 'STONE';
+    if (text.includes('tree') || text.includes('plant')) return 'VEGETATION';
     return 'GENERIC';
   }
 
