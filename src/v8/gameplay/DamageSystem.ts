@@ -97,7 +97,7 @@ export class DamageSystem {
       const staticHit = this.nearestStaticColliderHit(origin, normalized, range);
       if (staticHit) {
         const material = this.colliderMaterial(staticHit.collider);
-        reactedIds.push(`static:${staticHit.collider.id}`);
+        reactedIds.push(`static:${staticHit.collider.id ?? staticHit.collider.debugLabel ?? 'structure'}`);
         this.spawnImpact(staticHit.point, material, normalized);
         this.emitImpactAudio(material);
       }
@@ -134,7 +134,7 @@ export class DamageSystem {
   private nearestStaticColliderHit(origin: THREE.Vector3, forward: THREE.Vector3, range: number): { collider: Collider; point: THREE.Vector3 } | null {
     let best: { collider: Collider; point: THREE.Vector3; distance: number } | null = null;
     for (const collider of this.colliders) {
-      if (collider.enabled === false || collider.id.startsWith('body:')) continue;
+      if (collider.enabled === false || collider.id?.startsWith('body:')) continue;
       const x = THREE.MathUtils.clamp(origin.x, collider.minX, collider.maxX);
       const z = THREE.MathUtils.clamp(origin.z, collider.minZ, collider.maxZ);
       const point = new THREE.Vector3(x, 0.55, z);
@@ -149,7 +149,7 @@ export class DamageSystem {
   }
 
   private colliderMaterial(collider: Collider): SurfaceMaterial {
-    const text = `${collider.id} ${collider.debugLabel ?? ''}`.toLowerCase();
+    const text = `${collider.id ?? ''} ${collider.debugLabel ?? ''}`.toLowerCase();
     if (text.includes('door') || text.includes('fence') || text.includes('rack') || text.includes('machine') || text.includes('steel')) return 'METAL';
     if (text.includes('crate') || text.includes('wood') || text.includes('pallet')) return 'WOOD';
     if (text.includes('rock') || text.includes('stone') || text.includes('wall') || text.includes('concrete')) return 'STONE';
