@@ -1,27 +1,33 @@
 import * as THREE from 'three';
+import { CharacterAnimator } from '../animation/CharacterAnimator';
 import type { HeroAppearance } from '../types';
-import { RiggedHeroCharacter, type RiggedHeroAsset } from './RiggedHeroCharacter';
+import { HeroCharacter } from './HeroCharacter';
 
-/** Lightweight live preview used only on the start screen. */
+type PreviewAsset = {
+  visual: THREE.Group;
+  animator: CharacterAnimator;
+};
+
+/** Live preview of the exact same canonical hero used during gameplay. */
 export class HeroCustomizerPreview {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(31, 1, 0.1, 30);
   private readonly clock = new THREE.Clock();
-  private current: RiggedHeroAsset | null = null;
+  private current: PreviewAsset | null = null;
   private frame = 0;
   private generation = 0;
   private disposed = false;
-  private yaw = -0.06;
+  private yaw = -0.04;
   private dragging = false;
   private lastPointerX = 0;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.4));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.04;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.className = 'v8-customizer-canvas';
@@ -29,24 +35,28 @@ export class HeroCustomizerPreview {
     this.host.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color(0x09151d);
-    this.scene.fog = new THREE.Fog(0x09151d, 7, 14);
-    this.scene.add(new THREE.HemisphereLight(0xdff4ff, 0x1c2a30, 2.1));
+    this.scene.fog = new THREE.Fog(0x09151d, 7.5, 14);
+    this.scene.add(new THREE.HemisphereLight(0xdff4ff, 0x17252c, 1.85));
 
-    const key = new THREE.DirectionalLight(0xffefd5, 3.35);
+    const key = new THREE.DirectionalLight(0xffefd5, 3.25);
     key.position.set(-3.4, 5.8, 4.6);
     key.castShadow = true;
     key.shadow.mapSize.set(768, 768);
+    key.shadow.camera.left = -3;
+    key.shadow.camera.right = 3;
+    key.shadow.camera.top = 4;
+    key.shadow.camera.bottom = -1;
     this.scene.add(key);
 
-    const rim = new THREE.DirectionalLight(0x57bff2, 2.55);
+    const rim = new THREE.DirectionalLight(0x57bff2, 2.35);
     rim.position.set(4.2, 3.8, -3.5);
     this.scene.add(rim);
 
-    const faceFill = new THREE.PointLight(0xd9f3ff, 1.35, 8);
-    faceFill.position.set(0.2, 2.3, 3.8);
+    const faceFill = new THREE.PointLight(0xd9f3ff, 1.2, 8);
+    faceFill.position.set(0.2, 2.45, 3.8);
     this.scene.add(faceFill);
 
-    const warmFill = new THREE.PointLight(0xf3c83f, 0.65, 8);
+    const warmFill = new THREE.PointLight(0xf3c83f, 0.5, 8);
     warmFill.position.set(-2.5, 1.5, 2.4);
     this.scene.add(warmFill);
 
@@ -66,8 +76,8 @@ export class HeroCustomizerPreview {
     ring.position.y = 0.02;
     this.scene.add(ring);
 
-    this.camera.position.set(0.48, 2.05, 5.35);
-    this.camera.lookAt(0, 1.16, 0);
+    this.camera.position.set(0.25, 2.05, 5.15);
+    this.camera.lookAt(0, 1.25, 0);
 
     this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointermove', this.onPointerMove);
@@ -82,22 +92,26 @@ export class HeroCustomizerPreview {
   async setAppearance(appearance: HeroAppearance): Promise<void> {
     const generation = ++this.generation;
     try {
-      const next = await new RiggedHeroCharacter().load(appearance);
-      if (this.disposed || generation !== this.generation) {
-        next.animator.dispose();
-        return;
-      }
+      const hero = new HeroCharacter();
+      const model = hero.create({
+        name: 'Investigador',
+        role: 'quality',
+        accent: new THREE.Color(appearance.vest).getHex(),
+        appearance
+      });
+      const animator = new CharacterAnimator({ ...model.rig, root: model.root, visual: model.visual });
+      const next: PreviewAsset = { visual: model.visual, animator };
 
-      if (this.current) {
-        this.scene.remove(this.current.root);
-        this.current.animator.dispose();
-      }
+      if (this.disposed || generation !== this.generation) return;
+
+      if (this.current) this.scene.remove(this.current.visual);
       this.current = next;
-      next.root.position.set(0, 0, 0);
-      next.root.rotation.y = this.yaw;
+      next.visual.position.set(0, 0, 0);
+      next.visual.rotation.y = this.yaw;
       next.animator.setLocomotion(false, false, false);
-      this.scene.add(next.root);
+      this.scene.add(next.visual);
       this.host.classList.add('is-ready');
+      this.host.classList.remove('is-error');
     } catch (error) {
       console.warn('[V8] Hero customizer preview unavailable.', error);
       this.host.classList.add('is-error');
@@ -112,7 +126,6 @@ export class HeroCustomizerPreview {
     window.removeEventListener('pointerup', this.onPointerUp);
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     cancelAnimationFrame(this.frame);
-    this.current?.animator.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -141,7 +154,7 @@ export class HeroCustomizerPreview {
     const dt = Math.min(this.clock.getDelta(), 0.04);
     if (this.current) {
       this.current.animator.update(dt);
-      this.current.root.rotation.y = THREE.MathUtils.lerp(this.current.root.rotation.y, this.yaw, 0.18);
+      this.current.visual.rotation.y = THREE.MathUtils.lerp(this.current.visual.rotation.y, this.yaw, 0.18);
     }
     this.renderer.render(this.scene, this.camera);
   };
