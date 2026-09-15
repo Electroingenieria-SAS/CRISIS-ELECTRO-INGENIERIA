@@ -1,0 +1,18 @@
+This is the standard FREE version of the Universal Base Characters Kit, which only contains
+a portion of the models. You can get other versions from https://quaternius.com
+
+-------------------------------------------------------
+License:
+CC0 1.0 Universal (CC0 1.0)
+Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+------------------------------------------------------
+Models by @Quaternius
+https://www.patreon.com/quaternius
+https://discord.gg/vJqnRUYRfT
+
+V8 provenance:
+Primary source: https://quaternius.com/packs/universalbasecharacters.html
+Runtime GLB mirror used by the prototype: https://raw.githubusercontent.com/programasweights/avatar/main/public/assets/character.glb
+The mirror documents the bundled model as Quaternius Universal Base Characters / Superhero Male, CC0 1.0.
