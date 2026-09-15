@@ -22,7 +22,7 @@ async function existsLargeEnough(path, minBytes) {
 }
 
 async function downloadBinary(url, target, minBytes) {
-  if (await existsLargeEnough(target, minBytes)) return;
+  if (await existsLargeEnough(target, minBytes)) return true;
   const response = await fetch(url, { headers: { 'User-Agent': 'crisis-electroingenieria-build' } });
   if (!response.ok) throw new Error(`Failed to download ${url}: ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -32,6 +32,16 @@ async function downloadBinary(url, target, minBytes) {
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, bytes);
   console.log(`[KayKit] acquired ${target} (${bytes.length} bytes)`);
+  return true;
+}
+
+async function downloadOptionalBinary(url, target, minBytes) {
+  try {
+    return await downloadBinary(url, target, minBytes);
+  } catch (error) {
+    console.warn(`[KayKit] optional asset unavailable: ${url}`, error instanceof Error ? error.message : error);
+    return false;
+  }
 }
 
 async function downloadText(url, target) {
@@ -53,6 +63,14 @@ await downloadBinary(
   `${COMMUNITY_MIRROR}/Rig_Medium_CombatMelee.glb`,
   resolve(ANIMATION_ROOT, 'Rig_Medium_CombatMelee.glb'),
   900_000
+);
+
+// Character Animations 1.1 adds a CC0 tool set with Holding/Work/Hammer/etc.
+// It is optional at build time so a temporary mirror outage never breaks V8/V9.
+await downloadOptionalBinary(
+  `${COMMUNITY_MIRROR}/Rig_Medium_Tools.glb`,
+  resolve(ANIMATION_ROOT, 'Rig_Medium_Tools.glb'),
+  250_000
 );
 
 await downloadText(`${OFFICIAL}/LICENSE.txt`, resolve(LICENSE_DIR, 'KayKit-Adventurers-CC0.txt'));
