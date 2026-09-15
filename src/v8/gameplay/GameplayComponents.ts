@@ -32,7 +32,9 @@ export interface CarryConfig {
   carryHeight: number;
   weightClass: WeightClass;
   pickupDuration?: number;
+  pickupTimeScale?: number;
   attachNormalizedTime?: number;
+  settleDuration?: number;
   putDownDuration?: number;
   releaseNormalizedTime?: number;
   throwSpeed?: number;
@@ -87,26 +89,29 @@ export const WEIGHT_PROFILES: Record<WeightClass, {
   throwMultiplier: number;
   carryBob: number;
 }> = {
-  LIGHT: { moveSpeed: 0.90, acceleration: 0.92, throwMultiplier: 1.15, carryBob: 0.020 },
-  MEDIUM: { moveSpeed: 0.76, acceleration: 0.78, throwMultiplier: 0.82, carryBob: 0.012 },
-  HEAVY: { moveSpeed: 0.58, acceleration: 0.60, throwMultiplier: 0.0, carryBob: 0.006 }
+  LIGHT: { moveSpeed: 0.90, acceleration: 0.92, throwMultiplier: 1.15, carryBob: 0.016 },
+  MEDIUM: { moveSpeed: 0.74, acceleration: 0.74, throwMultiplier: 0.82, carryBob: 0.008 },
+  HEAVY: { moveSpeed: 0.56, acceleration: 0.56, throwMultiplier: 0.0, carryBob: 0.004 }
 };
 
 /**
- * Neutral carry pose for a medium object. It deliberately sits below the chin
- * and in front of the vest so neither helmet nor face is occluded.
+ * Neutral ergonomic pose for a medium box. The load is kept close to the abdomen
+ * and below the sternum, which gives the KayKit elbows room to bend and prevents
+ * the box from reading as if it were magnetically attached to the chest.
  */
 export const DEFAULT_CARRY_CONFIG: CarryConfig = {
-  positionOffset: [0, 1.14, 0.54],
+  positionOffset: [0, 1.04, 0.49],
   rotationOffset: [0, 0, 0],
-  leftHandGrip: { position: [-0.30, 0.02, 0.02] },
-  rightHandGrip: { position: [0.30, 0.02, 0.02] },
-  carryHeight: 1.14,
+  leftHandGrip: { position: [-0.30, -0.08, -0.06] },
+  rightHandGrip: { position: [0.30, -0.08, -0.06] },
+  carryHeight: 1.04,
   weightClass: 'MEDIUM',
-  pickupDuration: 0.92,
-  attachNormalizedTime: 0.46,
-  putDownDuration: 0.82,
-  releaseNormalizedTime: 0.64,
-  throwSpeed: 6.8,
-  throwLift: 3.2
+  pickupDuration: 1.08,
+  pickupTimeScale: 0.88,
+  attachNormalizedTime: 0.50,
+  settleDuration: 0.15,
+  putDownDuration: 0.96,
+  releaseNormalizedTime: 0.67,
+  throwSpeed: 6.6,
+  throwLift: 3.0
 };
