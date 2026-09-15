@@ -19,6 +19,7 @@ const DEFAULT_PROMPTS: Record<WorldObjectKind, string> = {
 export class WorldObjectRegistry {
   private readonly objects = new Map<string, WorldObjectDefinition>();
   private readonly worldPosition = new THREE.Vector3();
+  private readonly direction = new THREE.Vector3();
 
   register(definition: WorldObjectDefinition): WorldObjectDefinition {
     definition.object.userData.worldObjectId = definition.id;
@@ -56,17 +57,35 @@ export class WorldObjectRegistry {
     if (item) item.enabled = enabled;
   }
 
-  nearest(position: THREE.Vector3, kinds: WorldObjectKind[], maxDistance = Infinity): WorldContextTarget | null {
+  nearest(position: THREE.Vector3, kinds: WorldObjectKind[], maxDistance = Infinity, forward?: THREE.Vector3): WorldContextTarget | null {
     const accepted = new Set(kinds);
     let best: WorldContextTarget | null = null;
 
     for (const entry of this.objects.values()) {
       if (entry.enabled === false || !entry.object.visible || !accepted.has(entry.kind)) continue;
-      const radius = entry.radius ?? 2.0;
-      const distance = entry.object.getWorldPosition(this.worldPosition).distanceTo(position);
+      const point = entry.interaction?.point ?? entry.object;
+      const radius = entry.interaction?.maxDistance ?? entry.radius ?? 2.0;
+      point.getWorldPosition(this.worldPosition);
+      const distance = this.worldPosition.distanceTo(position);
       if (distance > Math.min(radius, maxDistance)) continue;
-      if (best && distance >= best.distance) continue;
 
+      if (forward && entry.interaction?.requiresFacing !== false) {
+        this.direction.copy(this.worldPosition).sub(position).setY(0);
+        if (this.direction.lengthSq() > 0.0001) {
+          this.direction.normalize();
+          const flatForward = this.direction.setY(0);
+          const fwdX = forward.x;
+          const fwdZ = forward.z;
+          const fwdLength = Math.hypot(fwdX, fwdZ);
+          if (fwdLength > 0.0001) {
+            const dot = flatForward.x * (fwdX / fwdLength) + flatForward.z * (fwdZ / fwdLength);
+            const maxAngle = entry.interaction?.maxFacingAngle ?? Math.PI * 0.62;
+            if (dot < Math.cos(maxAngle)) continue;
+          }
+        }
+      }
+
+      if (best && distance >= best.distance) continue;
       best = {
         id: entry.id,
         kind: entry.kind,
@@ -74,7 +93,8 @@ export class WorldObjectRegistry {
         prompt: entry.prompt ?? DEFAULT_PROMPTS[entry.kind],
         key: entry.key ?? (entry.kind === 'breakable' ? 'SPACE' : 'E'),
         object: entry.object,
-        distance
+        distance,
+        interactionPoint: entry.interaction?.point
       };
     }
 
