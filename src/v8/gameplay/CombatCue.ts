@@ -1,15 +1,18 @@
 export type CombatCue = 'attack-impact';
 
-const EVENT_NAME = 'v9-combat-cue';
+type CombatCueListener = (cue: CombatCue) => void;
+
+// The game owns one active World runtime. A single replaceable sink avoids the
+// global window-listener accumulation that V8 could suffer after remounts.
+let activeListener: CombatCueListener | null = null;
 
 export function emitCombatCue(cue: CombatCue): void {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent<CombatCue>(EVENT_NAME, { detail: cue }));
+  activeListener?.(cue);
 }
 
-export function subscribeCombatCues(listener: (cue: CombatCue) => void): () => void {
-  if (typeof window === 'undefined') return () => undefined;
-  const handler = (event: Event) => listener((event as CustomEvent<CombatCue>).detail);
-  window.addEventListener(EVENT_NAME, handler);
-  return () => window.removeEventListener(EVENT_NAME, handler);
+export function subscribeCombatCues(listener: CombatCueListener): () => void {
+  activeListener = listener;
+  return () => {
+    if (activeListener === listener) activeListener = null;
+  };
 }
