@@ -114,6 +114,7 @@ export class RiggedCharacterLibrary {
       throw new Error(`Missing required rig animation: ${names.join(' / ')}`);
     };
 
+    const walk = byName('Walking_A', 'Walking_B') ?? required('Walking_C');
     const attack = byName(
       'Punch', 'Punch_A', 'Punch_B', 'Unarmed_Punch', 'Unarmed_Attack',
       'Unarmed_Attack_A', 'Attack', 'Attack_A', 'Attack_1H', 'Attack (1h)'
@@ -128,10 +129,11 @@ export class RiggedCharacterLibrary {
       ?? semantic(['holding']);
     const hit = byName('Hit_A', 'Hit_B', 'Hit', 'HitReaction', 'Get_Hit')
       ?? semantic(['hit'], ['attack']);
+    const carryWalk = carryIdle ? this.buildCarryWalkClip(walk, carryIdle) : undefined;
 
     const clips: RiggedCharacterClips = {
       idle: byName('Idle_A', 'Idle_B') ?? required('Idle_C'),
-      walk: byName('Walking_A', 'Walking_B') ?? required('Walking_C'),
+      walk,
       run: byName('Running_A', 'Running_B') ?? required('Running_C'),
       interact: byName('Interact', 'Interact_A') ?? semantic(['interact']),
       pickup,
@@ -143,9 +145,7 @@ export class RiggedCharacterLibrary {
       pull: byName('Pull', 'Pulling') ?? semantic(['pull']),
       throw: byName('Throw', 'Throw_A', 'Toss') ?? semantic(['throw']),
       carryIdle,
-      // No authored carry-walk is guaranteed in the CC0 pack. V9 deliberately
-      // falls back to controlled walk rather than abusing a static Holding clip.
-      carryWalk: undefined
+      carryWalk
     };
 
     GameLogger.animation('resolved KayKit clips', Object.fromEntries(
@@ -153,5 +153,48 @@ export class RiggedCharacterLibrary {
     ));
 
     return { scene: character.scene, clips };
+  }
+
+  /**
+   * Build a legal runtime blend clip from the same CC0 KayKit rig: lower-body
+   * walking tracks keep a real gait while Holding_* owns spine/arms/hands.
+   * No proprietary animation or baked asset is introduced.
+   */
+  private static buildCarryWalkClip(walk: THREE.AnimationClip, holding: THREE.AnimationClip): THREE.AnimationClip {
+    const upperBody = (trackName: string): boolean => {
+      const name = trackName.toLowerCase();
+      return [
+        'spine', 'chest', 'shoulder', 'clavicle',
+        'upperarm', 'lowerarm', 'forearm', 'armleft', 'armright',
+        'arm.l', 'arm.r', 'handleft', 'handright', 'hand.l', 'hand.r'
+      ].some((token) => name.includes(token));
+    };
+
+    const lowerTracks = walk.tracks
+      .filter((track) => !upperBody(track.name))
+      .map((track) => track.clone());
+    const scale = walk.duration / Math.max(0.001, holding.duration);
+    const upperTracks = holding.tracks
+      .filter((track) => upperBody(track.name))
+      .map((track) => {
+        const clone = track.clone();
+        clone.scale(scale);
+        return clone;
+      });
+
+    if (!upperTracks.length) {
+      GameLogger.animation('carry walk synthesis skipped: Holding clip exposes no recognized upper-body tracks', holding.name);
+      return walk.clone();
+    }
+
+    const clip = new THREE.AnimationClip('V9_CarryWalk_CC0Blend', walk.duration, [...lowerTracks, ...upperTracks]);
+    clip.optimize();
+    GameLogger.animation('synthesized carry walk', {
+      walk: walk.name,
+      holding: holding.name,
+      lowerTracks: lowerTracks.length,
+      upperTracks: upperTracks.length
+    });
+    return clip;
   }
 }
