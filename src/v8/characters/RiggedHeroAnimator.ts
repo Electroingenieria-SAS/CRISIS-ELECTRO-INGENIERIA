@@ -8,17 +8,12 @@ export interface RiggedHeroClips {
   interact?: THREE.AnimationClip;
   pickup?: THREE.AnimationClip;
   useItem?: THREE.AnimationClip;
+  attack?: THREE.AnimationClip;
 }
 
 type BaseState = 'idle' | 'walk' | 'run';
 
-/**
- * Cross-faded skeletal locomotion/action controller for the V8 hero.
- *
- * One-shot actions are fully isolated from locomotion. When a scan/interact/
- * pickup/drop finishes, its frozen final pose is faded out and explicitly
- * stopped before idle/walk/run regains full authority over the skeleton.
- */
+/** Cross-faded KayKit skeletal locomotion/action controller for the V8 hero. */
 export class RiggedHeroAnimator {
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<string, THREE.AnimationAction>();
@@ -28,7 +23,7 @@ export class RiggedHeroAnimator {
   private sprinting = false;
   private carrying = false;
   private actionPlaying = false;
-  private activeAction: Exclude<CharacterAction, null> | null = null;
+  private activeAction: string | null = null;
   private actionGeneration = 0;
 
   constructor(private readonly root: THREE.Object3D, clips: RiggedHeroClips) {
@@ -39,10 +34,12 @@ export class RiggedHeroAnimator {
 
     if (clips.interact) this.actions.set('interact', this.onceAction(clips.interact));
     if (clips.pickup) this.actions.set('pickup', this.onceAction(clips.pickup));
+    if (clips.attack) {
+      const attackClip = clips.attack.clone();
+      attackClip.name = `${clips.attack.name || 'Attack'}__COMBAT`;
+      this.actions.set('attack', this.onceAction(attackClip));
+    }
 
-    // Scan and drop intentionally use independent cloned clips. Three.js
-    // returns the same AnimationAction for the same clip/root pair, which was
-    // leaking scan state into later actions and locomotion.
     if (clips.useItem) {
       const scanClip = clips.useItem.clone();
       scanClip.name = `${clips.useItem.name || 'UseItem'}__SCAN`;
@@ -72,16 +69,39 @@ export class RiggedHeroAnimator {
   }
 
   play(action: Exclude<CharacterAction, null>): void {
-    const animation = this.actions.get(action);
-    if (!animation || this.actionPlaying) return;
+    this.startOneShot(action);
+  }
+
+  /** Play the real KayKit melee/punch clip selected by RiggedCharacterLibrary. */
+  playAttack(): void {
+    if (!this.startOneShot('attack')) this.startOneShot('interact');
+  }
+
+  update(dt: number): void {
+    const walk = this.actions.get('walk');
+    if (walk) walk.setEffectiveTimeScale(this.carrying ? 0.78 : 1);
+    const run = this.actions.get('run');
+    if (run) run.setEffectiveTimeScale(1);
+    this.mixer.update(dt);
+  }
+
+  dispose(): void {
+    this.actionGeneration += 1;
+    this.mixer.removeEventListener('finished', this.onFinished);
+    this.mixer.stopAllAction();
+    this.mixer.uncacheRoot(this.root);
+  }
+
+  private startOneShot(key: string): boolean {
+    const animation = this.actions.get(key);
+    if (!animation || this.actionPlaying) return false;
 
     this.actionPlaying = true;
-    this.activeAction = action;
+    this.activeAction = key;
     this.actionGeneration += 1;
-    if (this.scanner) this.scanner.visible = action === 'scan';
+    if (this.scanner) this.scanner.visible = key === 'scan';
 
     const base = this.actions.get(this.baseState);
-
     animation.stop();
     animation.reset();
     animation.stopFading();
@@ -94,25 +114,9 @@ export class RiggedHeroAnimator {
 
     if (base && base !== animation) {
       base.stopFading();
-      animation.crossFadeFrom(base, 0.16, false);
+      animation.crossFadeFrom(base, key === 'attack' ? 0.09 : 0.16, false);
     }
-  }
-
-  update(dt: number): void {
-    const walk = this.actions.get('walk');
-    if (walk) walk.setEffectiveTimeScale(this.carrying ? 0.78 : 1);
-
-    const run = this.actions.get('run');
-    if (run) run.setEffectiveTimeScale(1);
-
-    this.mixer.update(dt);
-  }
-
-  dispose(): void {
-    this.actionGeneration += 1;
-    this.mixer.removeEventListener('finished', this.onFinished);
-    this.mixer.stopAllAction();
-    this.mixer.uncacheRoot(this.root);
+    return true;
   }
 
   private desiredBaseState(): BaseState {
@@ -132,7 +136,6 @@ export class RiggedHeroAnimator {
     this.baseState = next;
   }
 
-  /** Ensure a previously faded base action cannot remain at zero weight. */
   private ensureBaseAuthority(state: BaseState): void {
     const target = this.actions.get(state);
     if (!target) return;
@@ -171,17 +174,13 @@ export class RiggedHeroAnimator {
       return;
     }
 
-    // The one-shot is clamped at its last frame when `finished` fires. Always
-    // fade from that frozen pose, even though isRunning() is already false.
     this.prepareBaseAction(target);
     if (finishedAction && finishedAction !== target) {
       finishedAction.stopFading();
       finishedAction.enabled = true;
       finishedAction.setEffectiveWeight(1);
-      target.crossFadeFrom(finishedAction, 0.14, false);
+      target.crossFadeFrom(finishedAction, finishedKey === 'attack' ? 0.10 : 0.14, false);
 
-      // Once the fade is complete, remove every trace of the one-shot pose so
-      // it cannot keep blending with run/walk on subsequent frames.
       window.setTimeout(() => {
         if (generation !== this.actionGeneration || this.activeAction === finishedKey) return;
         finishedAction.stopFading();
@@ -189,7 +188,7 @@ export class RiggedHeroAnimator {
         finishedAction.stop();
         finishedAction.enabled = false;
         finishedAction.setEffectiveWeight(0);
-      }, 190);
+      }, finishedKey === 'attack' ? 150 : 190);
     }
 
     this.baseState = desired;
