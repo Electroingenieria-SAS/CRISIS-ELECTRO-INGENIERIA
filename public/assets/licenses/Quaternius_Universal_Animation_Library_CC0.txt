@@ -1,0 +1,14 @@
+-------------------------------------------------------
+License:
+CC0 1.0 Universal (CC0 1.0)
+Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+------------------------------------------------------
+Animations by @Quaternius
+https://www.patreon.com/quaternius
+
+V8 provenance:
+Primary source: https://quaternius.com/packs/universalanimationlibrary.html
+Runtime GLB mirror used by the prototype: https://raw.githubusercontent.com/Seyamalam/blood-league-kickoff/main/public/assets/vendor/quaternius/universal-animation-library.glb
+The mirror records the asset as Quaternius Universal Animation Library, CC0 1.0.

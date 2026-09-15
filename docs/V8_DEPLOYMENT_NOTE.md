@@ -1,0 +1,1 @@
+V8 remains isolated from main. This note documents that preview validation is required before merge.
