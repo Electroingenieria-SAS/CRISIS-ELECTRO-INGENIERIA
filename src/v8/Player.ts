@@ -3,6 +3,7 @@ import { CharacterAnimator, type CharacterAction } from './animation/CharacterAn
 import { EngineerHeroCharacterV2 } from './characters/EngineerHeroCharacterV2';
 import type { HeroActionRequest, HeroAnimationState } from './characters/RiggedHeroAnimator';
 import { HeroCharacter } from './characters/HeroCharacter';
+import { emitCombatCue } from './gameplay/CombatCue';
 import { DEFAULT_CARRY_CONFIG, WEIGHT_PROFILES, type CarryConfig, type CarryState } from './gameplay/GameplayComponents';
 import { GameLogger } from './gameplay/GameLogger';
 import type { PlayerProfile } from './types';
@@ -85,7 +86,6 @@ export class Player {
       if (input.isDown('KeyW', 'ArrowUp')) y += 1;
       if (input.isDown('KeyS', 'ArrowDown')) y -= 1;
       if (input.isDown('KeyA', 'ArrowLeft')) x -= 1;
-      if (input.isDown('KeyD', 'ArrowRight')) y += 0; // keeps keyboard branch explicit without diagonal bias
       if (input.isDown('KeyD', 'ArrowRight')) x += 1;
     }
 
@@ -132,9 +132,11 @@ export class Player {
   }
 
   playAction(action: Exclude<CharacterAction, null>): void {
-    // Compatibility bridge used by story/scanner interactions.
-    if (action === 'interact' && this.inputRef?.isDown('Space') && this.animator.playAttack) {
-      this.animator.playAttack();
+    // Compatibility bridge: existing GameCore still requests `interact` on
+    // Space, but V9 converts that request into a real attack whose damage marker
+    // is emitted later, at the authored contact point.
+    if (action === 'interact' && this.inputRef?.isDown('Space')) {
+      this.playAttack(() => emitCombatCue('attack-impact'));
       return;
     }
     this.animator.play(action);
@@ -217,8 +219,7 @@ export class Player {
       marker: config.releaseNormalizedTime ?? 0.62,
       onMarker: release,
       onComplete: complete,
-      reverse: true,
-      timeScale: 1 / Math.max(0.25, config.putDownDuration ?? 0.78)
+      reverse: true
     }, 'drop');
     if (!played) this.startFallbackTimeline(config.putDownDuration ?? 0.78, config.releaseNormalizedTime ?? 0.62, release, complete);
     return { id, object };
@@ -287,7 +288,7 @@ export class Player {
 
     const duration = config.pickupDuration ?? 0.90;
     const marker = config.attachNormalizedTime ?? 0.48;
-    const played = this.playHeroState('pickup', { marker, onMarker: attach, onComplete: complete, timeScale: 1 / Math.max(0.25, duration) }, 'pickup');
+    const played = this.playHeroState('pickup', { marker, onMarker: attach, onComplete: complete }, 'pickup');
     if (!played) this.startFallbackTimeline(duration, marker, attach, complete);
   }
 
