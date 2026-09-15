@@ -27,6 +27,7 @@ interface Agent {
  * staff member is then promoted to a cached skeletal actor with real clips.
  */
 export class NPCLifeController {
+  private static readonly CANONICAL_CHARACTER_SCALE = 0.94;
   private readonly factory = new CharacterFactory();
   private readonly riggedFactory = new RiggedStaffCharacter();
   private readonly agents: Agent[] = [];
@@ -36,6 +37,7 @@ export class NPCLifeController {
 
   register(id: string, anchor: THREE.Object3D, model: CharacterModel, role: CharacterRole, phase = 0): void {
     model.root.userData.npcId = id;
+    model.root.scale.setScalar(NPCLifeController.CANONICAL_CHARACTER_SCALE);
     const agent: Agent = {
       id,
       anchor,
@@ -89,6 +91,11 @@ export class NPCLifeController {
     try {
       const rigged = await this.riggedFactory.load(this.styleFor(agent));
       if (!agent.anchor.parent) return;
+
+      // Canonical scale: protagonist and every rigged NPC share the same world size.
+      rigged.visual.scale.setScalar(NPCLifeController.CANONICAL_CHARACTER_SCALE);
+      rigged.root.userData.canonicalScale = NPCLifeController.CANONICAL_CHARACTER_SCALE;
+
       agent.anchor.remove(agent.model.root);
       agent.anchor.add(rigged.root);
       agent.rigged = rigged;
