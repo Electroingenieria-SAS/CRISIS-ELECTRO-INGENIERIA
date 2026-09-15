@@ -12,7 +12,13 @@ export interface RiggedHeroClips {
 
 type BaseState = 'idle' | 'walk' | 'run';
 
-/** Cross-faded skeletal locomotion/action controller for the V8 hero. */
+/**
+ * Cross-faded skeletal locomotion/action controller for the V8 hero.
+ *
+ * One-shot actions are fully isolated from locomotion. When a scan/interact/
+ * pickup/drop finishes, its frozen final pose is faded out and explicitly
+ * stopped before idle/walk/run regains full authority over the skeleton.
+ */
 export class RiggedHeroAnimator {
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<string, THREE.AnimationAction>();
@@ -23,18 +29,27 @@ export class RiggedHeroAnimator {
   private carrying = false;
   private actionPlaying = false;
   private activeAction: Exclude<CharacterAction, null> | null = null;
+  private actionGeneration = 0;
 
   constructor(private readonly root: THREE.Object3D, clips: RiggedHeroClips) {
     this.mixer = new THREE.AnimationMixer(root);
     this.actions.set('idle', this.loopAction(clips.idle));
     this.actions.set('walk', this.loopAction(clips.walk));
     this.actions.set('run', this.loopAction(clips.run));
+
     if (clips.interact) this.actions.set('interact', this.onceAction(clips.interact));
     if (clips.pickup) this.actions.set('pickup', this.onceAction(clips.pickup));
+
+    // Scan and drop intentionally use independent cloned clips. Three.js
+    // returns the same AnimationAction for the same clip/root pair, which was
+    // leaking scan state into later actions and locomotion.
     if (clips.useItem) {
-      const useItem = this.onceAction(clips.useItem);
-      this.actions.set('scan', useItem);
-      this.actions.set('drop', useItem);
+      const scanClip = clips.useItem.clone();
+      scanClip.name = `${clips.useItem.name || 'UseItem'}__SCAN`;
+      const dropClip = clips.useItem.clone();
+      dropClip.name = `${clips.useItem.name || 'UseItem'}__DROP`;
+      this.actions.set('scan', this.onceAction(scanClip));
+      this.actions.set('drop', this.onceAction(dropClip));
     }
 
     this.scanner = root.getObjectByName('EI_HAND_SCANNER_RIGGED') ?? null;
@@ -51,42 +66,57 @@ export class RiggedHeroAnimator {
     this.carrying = carrying;
     if (this.actionPlaying) return;
 
-    const desired: BaseState = !moving ? 'idle' : sprinting && !carrying ? 'run' : 'walk';
+    const desired = this.desiredBaseState();
     if (desired !== this.baseState) this.transitionBase(desired);
+    else this.ensureBaseAuthority(desired);
   }
 
   play(action: Exclude<CharacterAction, null>): void {
     const animation = this.actions.get(action);
-    if (!animation) return;
-
-    // Do not restart a one-shot every frame or interrupt another one-shot.
-    // GameCore dispatches actions once per consumed key press.
-    if (this.actionPlaying) return;
+    if (!animation || this.actionPlaying) return;
 
     this.actionPlaying = true;
     this.activeAction = action;
+    this.actionGeneration += 1;
     if (this.scanner) this.scanner.visible = action === 'scan';
 
     const base = this.actions.get(this.baseState);
+
     animation.stop();
     animation.reset();
+    animation.stopFading();
+    animation.stopWarping();
     animation.enabled = true;
+    animation.paused = false;
     animation.setEffectiveWeight(1);
     animation.setEffectiveTimeScale(1);
     animation.play();
-    if (base && base !== animation) animation.crossFadeFrom(base, 0.18, true);
+
+    if (base && base !== animation) {
+      base.stopFading();
+      animation.crossFadeFrom(base, 0.16, false);
+    }
   }
 
   update(dt: number): void {
     const walk = this.actions.get('walk');
     if (walk) walk.setEffectiveTimeScale(this.carrying ? 0.78 : 1);
+
+    const run = this.actions.get('run');
+    if (run) run.setEffectiveTimeScale(1);
+
     this.mixer.update(dt);
   }
 
   dispose(): void {
+    this.actionGeneration += 1;
     this.mixer.removeEventListener('finished', this.onFinished);
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.root);
+  }
+
+  private desiredBaseState(): BaseState {
+    return !this.moving ? 'idle' : this.sprinting && !this.carrying ? 'run' : 'walk';
   }
 
   private transitionBase(next: BaseState): void {
@@ -94,37 +124,74 @@ export class RiggedHeroAnimator {
     const target = this.actions.get(next);
     if (!target) return;
 
-    target.enabled = true;
-    target.setEffectiveWeight(1);
-    if (!target.isRunning()) target.play();
+    this.prepareBaseAction(target);
     if (previous && previous !== target) {
-      target.crossFadeFrom(previous, next === 'run' || this.baseState === 'run' ? 0.18 : 0.24, true);
+      previous.stopFading();
+      target.crossFadeFrom(previous, next === 'run' || this.baseState === 'run' ? 0.16 : 0.22, false);
     }
     this.baseState = next;
   }
 
+  /** Ensure a previously faded base action cannot remain at zero weight. */
+  private ensureBaseAuthority(state: BaseState): void {
+    const target = this.actions.get(state);
+    if (!target) return;
+    target.stopFading();
+    target.enabled = true;
+    target.paused = false;
+    target.setEffectiveWeight(1);
+    if (!target.isRunning()) target.play();
+  }
+
+  private prepareBaseAction(action: THREE.AnimationAction): void {
+    action.stopFading();
+    action.stopWarping();
+    action.enabled = true;
+    action.paused = false;
+    action.setEffectiveWeight(1);
+    action.setEffectiveTimeScale(1);
+    if (!action.isRunning()) action.play();
+  }
+
   private onFinished = (): void => {
-    if (!this.actionPlaying) return;
+    if (!this.actionPlaying || !this.activeAction) return;
+
+    const finishedKey = this.activeAction;
+    const finishedAction = this.actions.get(finishedKey);
+    const generation = this.actionGeneration;
 
     this.actionPlaying = false;
     this.activeAction = null;
     if (this.scanner) this.scanner.visible = false;
 
-    const desired: BaseState = !this.moving ? 'idle' : this.sprinting && !this.carrying ? 'run' : 'walk';
+    const desired = this.desiredBaseState();
     const target = this.actions.get(desired);
-    if (!target) return;
-
-    target.enabled = true;
-    target.setEffectiveWeight(1);
-    if (!target.isRunning()) target.reset().play();
-
-    const seen = new Set<THREE.AnimationAction>();
-    for (const key of ['interact', 'pickup', 'scan', 'drop']) {
-      const action = this.actions.get(key);
-      if (!action || seen.has(action)) continue;
-      seen.add(action);
-      if (action.isRunning()) target.crossFadeFrom(action, 0.20, true);
+    if (!target) {
+      finishedAction?.stop();
+      return;
     }
+
+    // The one-shot is clamped at its last frame when `finished` fires. Always
+    // fade from that frozen pose, even though isRunning() is already false.
+    this.prepareBaseAction(target);
+    if (finishedAction && finishedAction !== target) {
+      finishedAction.stopFading();
+      finishedAction.enabled = true;
+      finishedAction.setEffectiveWeight(1);
+      target.crossFadeFrom(finishedAction, 0.14, false);
+
+      // Once the fade is complete, remove every trace of the one-shot pose so
+      // it cannot keep blending with run/walk on subsequent frames.
+      window.setTimeout(() => {
+        if (generation !== this.actionGeneration || this.activeAction === finishedKey) return;
+        finishedAction.stopFading();
+        finishedAction.stopWarping();
+        finishedAction.stop();
+        finishedAction.enabled = false;
+        finishedAction.setEffectiveWeight(0);
+      }, 190);
+    }
+
     this.baseState = desired;
   };
 
