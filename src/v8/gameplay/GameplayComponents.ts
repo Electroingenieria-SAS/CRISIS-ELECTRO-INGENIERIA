@@ -23,7 +23,9 @@ export interface GripPointConfig {
 }
 
 export interface CarryConfig {
+  /** Final object-centre position in actor-local space. X=0 keeps the load centred. */
   positionOffset: THREE.Vector3Tuple;
+  /** Rotation of the carry frame. The carried object's local rotation remains identity. */
   rotationOffset?: THREE.Vector3Tuple;
   leftHandGrip?: GripPointConfig;
   rightHandGrip?: GripPointConfig;
@@ -90,17 +92,21 @@ export const WEIGHT_PROFILES: Record<WeightClass, {
   HEAVY: { moveSpeed: 0.58, acceleration: 0.60, throwMultiplier: 0.0, carryBob: 0.006 }
 };
 
+/**
+ * Neutral carry pose for a medium object. It deliberately sits below the chin
+ * and in front of the vest so neither helmet nor face is occluded.
+ */
 export const DEFAULT_CARRY_CONFIG: CarryConfig = {
-  positionOffset: [0, 1.32, 0.64],
+  positionOffset: [0, 1.14, 0.54],
   rotationOffset: [0, 0, 0],
-  leftHandGrip: { position: [-0.30, 0.12, 0.04] },
-  rightHandGrip: { position: [0.30, 0.12, 0.04] },
-  carryHeight: 1.32,
+  leftHandGrip: { position: [-0.30, 0.02, 0.02] },
+  rightHandGrip: { position: [0.30, 0.02, 0.02] },
+  carryHeight: 1.14,
   weightClass: 'MEDIUM',
-  pickupDuration: 0.90,
-  attachNormalizedTime: 0.48,
-  putDownDuration: 0.78,
-  releaseNormalizedTime: 0.62,
+  pickupDuration: 0.92,
+  attachNormalizedTime: 0.46,
+  putDownDuration: 0.82,
+  releaseNormalizedTime: 0.64,
   throwSpeed: 6.8,
   throwLift: 3.2
 };
