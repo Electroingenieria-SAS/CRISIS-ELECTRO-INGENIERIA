@@ -38,11 +38,17 @@ export type PlayerProfile = {
   appearance: HeroAppearance;
 };
 
+/** 2D ground-plane collision body. Dynamic bodies can be enabled/disabled or pushed. */
 export type Collider = {
+  id?: string;
   minX: number;
   maxX: number;
   minZ: number;
   maxZ: number;
+  enabled?: boolean;
+  pushable?: boolean;
+  object?: THREE.Object3D;
+  debugLabel?: string;
 };
 
 export type WorldAction = {
@@ -65,6 +71,69 @@ export type DropSocket = {
   label: string;
   object: THREE.Object3D;
   radius: number;
+};
+
+export type WorldObjectKind =
+  | 'static'
+  | 'interactable'
+  | 'pickup'
+  | 'carryable'
+  | 'movable'
+  | 'breakable'
+  | 'container'
+  | 'puzzle'
+  | 'door'
+  | 'npc'
+  | 'combat-zone'
+  | 'trigger';
+
+export type InventoryItem = {
+  id: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  quantity?: number;
+};
+
+export type WorldObjectDefinition = {
+  id: string;
+  kind: WorldObjectKind;
+  label: string;
+  prompt?: string;
+  object: THREE.Object3D;
+  radius?: number;
+  key?: 'E' | 'F' | 'SPACE';
+  colliderId?: string;
+  enabled?: boolean;
+  inventoryItem?: InventoryItem;
+  contents?: InventoryItem[];
+  health?: number;
+  maxHealth?: number;
+  state?: Record<string, unknown>;
+};
+
+export type WorldContextTarget = {
+  id: string;
+  kind: WorldObjectKind;
+  label: string;
+  prompt: string;
+  key: 'E' | 'F' | 'SPACE';
+  object: THREE.Object3D;
+  distance: number;
+};
+
+export type WorldInteractionResult = {
+  handled: boolean;
+  title?: string;
+  message?: string;
+  tone?: 'normal' | 'success' | 'danger';
+  items?: InventoryItem[];
+};
+
+export type CombatHitResult = {
+  hit: boolean;
+  destroyedIds: string[];
+  damagedIds: string[];
 };
 
 export type GameState = {
