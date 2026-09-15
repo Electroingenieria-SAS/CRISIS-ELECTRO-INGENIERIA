@@ -15,13 +15,12 @@ interface QuaterniusSource {
   clips: RiggedHeroClips;
 }
 
-const QUATERNIUS_CHARACTER = 'https://raw.githubusercontent.com/programasweights/avatar/main/public/assets/character.glb';
-const QUATERNIUS_ANIMATIONS = 'https://raw.githubusercontent.com/Seyamalam/blood-league-kickoff/main/public/assets/vendor/quaternius/universal-animation-library.glb';
-
 /**
  * Premium hero pipeline. The primary body and face use Quaternius Universal
- * Base Characters + Universal Animation Library (CC0). V8 adds industrial
- * uniform/PPE on animation joints. KayKit remains an offline-safe fallback.
+ * Base Characters + Universal Animation Library (CC0). Assets are acquired at
+ * build time and served from this project's own static bundle. V8 adds its
+ * original industrial uniform/PPE on animation joints. KayKit remains a local
+ * fallback if the primary asset cannot initialize.
  */
 export class RiggedHeroCharacter {
   private static quaterniusPromise: Promise<QuaterniusSource> | null = null;
@@ -39,7 +38,7 @@ export class RiggedHeroCharacter {
     const source = await RiggedHeroCharacter.quaterniusSource();
     const model = cloneSkeleton(source.scene) as THREE.Group;
     model.name = 'V8_QUATERNIUS_HERO_MODEL';
-    model.rotation.set(0, 0, 0); // Quaternius authored forward is +Z, same as V8 movement.
+    model.rotation.set(0, 0, 0);
     model.scale.copy(this.buildScale(appearance.build));
 
     const root = new THREE.Group();
@@ -70,9 +69,10 @@ export class RiggedHeroCharacter {
 
   private static async loadQuaterniusSource(): Promise<QuaterniusSource> {
     const loader = new GLTFLoader();
+    const base = import.meta.env.BASE_URL || '/';
     const [character, animationLibrary] = await Promise.all([
-      loader.loadAsync(QUATERNIUS_CHARACTER),
-      loader.loadAsync(QUATERNIUS_ANIMATIONS)
+      loader.loadAsync(`${base}assets/quaternius/hero.glb`),
+      loader.loadAsync(`${base}assets/quaternius/universal-animation-library.glb`)
     ]);
 
     const byName = new Map(animationLibrary.animations.map((clip) => [clip.name, clip]));
@@ -115,7 +115,6 @@ export class RiggedHeroCharacter {
   }
 
   private buildScale(build: HeroBuild): THREE.Vector3 {
-    // Deliberately stylized: clear silhouettes instead of tiny numeric changes.
     if (build === 'slim') return new THREE.Vector3(0.88, 0.96, 0.88);
     if (build === 'athletic') return new THREE.Vector3(1.06, 1.0, 1.04);
     return new THREE.Vector3(0.97, 0.98, 0.97);
@@ -145,8 +144,6 @@ export class RiggedHeroCharacter {
           else if (materialName.includes('eye') || nodeName.includes('eye')) {
             material.roughness = 0.32;
           } else {
-            // Base-character body textures are skin-first. Multiplying keeps
-            // authored face/normal detail while making skin selection visible.
             material.color.multiply(skinTint.clone().lerp(new THREE.Color(0xffffff), 0.34));
           }
         }
@@ -155,8 +152,6 @@ export class RiggedHeroCharacter {
       node.material = Array.isArray(node.material) ? cloned : cloned[0]!;
     });
 
-    // Slightly oversized head gives the readable Habbo-like stylized proportion
-    // without sacrificing the humanoid skeleton or animation quality.
     const head = model.getObjectByName('Head');
     if (head) head.scale.setScalar(1.07);
   }
@@ -183,7 +178,6 @@ export class RiggedHeroCharacter {
     const glass = new THREE.MeshPhysicalMaterial({ color: 0xa7d8e9, roughness: 0.08, transparent: true, opacity: 0.36, transmission: 0.26, thickness: 0.018, clearcoat: 0.5 });
     const hair = new THREE.MeshStandardMaterial({ color: new THREE.Color(appearance.hair), roughness: 0.78 });
 
-    // Fitted shirt shell: rounded geometry following the spine, never a front box.
     const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.185, 0.39, 14), shirt);
     torso.name = 'EI_HERO_FITTED_UNIFORM';
     torso.scale.set(1.18, 1, 0.74);
@@ -203,7 +197,6 @@ export class RiggedHeroCharacter {
       joint.add(trouser);
     }
 
-    // Slim high-visibility harness. This replaces the old rigid orange box.
     const harness = new THREE.Group();
     harness.name = 'EI_HERO_FITTED_HARNESS';
     for (const x of [-0.105, 0.105]) {
