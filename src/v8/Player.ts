@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CharacterAnimator, type CharacterAction } from './animation/CharacterAnimator';
 import { EngineerHeroCharacterV2 } from './characters/EngineerHeroCharacterV2';
 import { HeroCharacter } from './characters/HeroCharacter';
-import type { Collider, PlayerProfile } from './types';
+import type { PlayerProfile } from './types';
 import type { Input } from './Input';
 
 interface PlayerAnimator {
@@ -10,6 +10,8 @@ interface PlayerAnimator {
   play(action: Exclude<CharacterAction, null>): void;
   update(dt: number): void;
 }
+
+type MovementResolver = (current: THREE.Vector3, desired: THREE.Vector3, radius: number) => THREE.Vector3;
 
 export class Player {
   readonly group = new THREE.Group();
@@ -29,7 +31,7 @@ export class Player {
     void this.promoteToEngineerHero();
   }
 
-  update(dt: number, input: Input, colliders: Collider[], screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
+  update(dt: number, input: Input, resolveMovement: MovementResolver, screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
     let x = 0;
     let y = 0;
     if (!locked) {
@@ -47,15 +49,13 @@ export class Player {
 
     if (moving) {
       movement.normalize();
-      const next = this.position.clone().addScaledVector(movement, speed * dt);
-      if (!this.collides(next, colliders)) this.position.copy(next);
+      const desired = this.position.clone().addScaledVector(movement, speed * dt);
+      this.position.copy(resolveMovement(this.position, desired, 0.42));
       const targetYaw = Math.atan2(movement.x, movement.z);
       this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 12));
     }
 
     // E/F actions are intentionally NOT triggered from held-key state here.
-    // GameCore owns interaction/scan events through Input.consume(), so each
-    // animation starts once per press instead of being reset every frame.
     this.animator.setLocomotion(moving, sprint, Boolean(this.carriedId));
     this.animator.update(dt);
   }
@@ -66,6 +66,11 @@ export class Player {
 
   getCarriedId(): string | null {
     return this.carriedId;
+  }
+
+  forward(target = new THREE.Vector3()): THREE.Vector3 {
+    target.set(Math.sin(this.visual.rotation.y), 0, Math.cos(this.visual.rotation.y));
+    return target.normalize();
   }
 
   pickup(object: THREE.Object3D, id: string): boolean {
@@ -83,18 +88,53 @@ export class Player {
   }
 
   drop(parent: THREE.Object3D, target: THREE.Vector3): { id: string; object: THREE.Object3D } | null {
+    const released = this.releaseCarried(parent);
+    if (!released) return null;
+    released.object.position.copy(target);
+    released.object.rotation.set(0, 0, 0);
+    this.playAction('drop');
+    return released;
+  }
+
+  throwCarried(parent: THREE.Object3D, direction: THREE.Vector3): { id: string; object: THREE.Object3D } | null {
+    const released = this.releaseCarried(parent);
+    if (!released) return null;
+
+    const object = released.object;
+    const start = object.position.clone();
+    const forward = direction.clone().setY(0).normalize();
+    const end = start.clone().addScaledVector(forward, 3.0);
+    const started = performance.now();
+    const duration = 380;
+    object.userData.throwing = true;
+
+    const animate = (now: number) => {
+      const t = THREE.MathUtils.clamp((now - started) / duration, 0, 1);
+      object.position.lerpVectors(start, end, t);
+      object.position.y = THREE.MathUtils.lerp(start.y, 0.15, t) + Math.sin(Math.PI * t) * 1.05;
+      object.rotation.x += 0.16;
+      object.rotation.z += 0.10;
+      if (t < 1) requestAnimationFrame(animate);
+      else {
+        object.position.y = 0.15;
+        object.userData.throwing = false;
+      }
+    };
+    requestAnimationFrame(animate);
+    this.playAction('drop');
+    return released;
+  }
+
+  private releaseCarried(parent: THREE.Object3D): { id: string; object: THREE.Object3D } | null {
     if (!this.carriedId || !this.carriedObject) return null;
     const id = this.carriedId;
     const object = this.carriedObject;
     parent.attach(object);
-    object.position.copy(target);
-    object.rotation.set(0, 0, 0);
     const original = object.userData.v8OriginalScale as THREE.Vector3 | undefined;
     if (original) object.scale.copy(original);
     object.userData.carried = false;
     this.carriedId = null;
     this.carriedObject = null;
-    this.playAction('drop');
     return { id, object };
   }
 
@@ -144,11 +184,6 @@ export class Player {
       console.warn('[V8] KayKit engineer V2 unavailable; enabling fallback.', error);
       fallback.visible = true;
     }
-  }
-
-  private collides(position: THREE.Vector3, colliders: Collider[]): boolean {
-    const radius = 0.42;
-    return colliders.some((c) => position.x + radius > c.minX && position.x - radius < c.maxX && position.z + radius > c.minZ && position.z - radius < c.maxZ);
   }
 
   private lerpAngle(a: number, b: number, t: number): number {
