@@ -2,20 +2,14 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 const ROOT = resolve(process.cwd(), 'public/assets/kaykit/characters');
+const ANIMATION_ROOT = resolve(process.cwd(), 'public/assets/kaykit/animations');
 const LICENSE_DIR = resolve(process.cwd(), 'public/assets/licenses');
 const OFFICIAL = 'https://raw.githubusercontent.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0/main/addons/kaykit_character_pack_adventures';
+const COMMUNITY_MIRROR = 'https://raw.githubusercontent.com/GeorgeQLe/assets-kaykit-3d-characters/main/assets/kaykit/character-animations-1.1/Animations/gltf/Rig_Medium';
 
 const assets = [
-  {
-    name: 'Rogue.glb',
-    url: `${OFFICIAL}/Characters/gltf/Rogue.glb`,
-    minBytes: 1_000_000
-  },
-  {
-    name: 'Mage.glb',
-    url: `${OFFICIAL}/Characters/gltf/Mage.glb`,
-    minBytes: 1_000_000
-  }
+  { name: 'Rogue.glb', url: `${OFFICIAL}/Characters/gltf/Rogue.glb`, minBytes: 1_000_000 },
+  { name: 'Mage.glb', url: `${OFFICIAL}/Characters/gltf/Mage.glb`, minBytes: 1_000_000 }
 ];
 
 async function existsLargeEnough(path, minBytes) {
@@ -52,7 +46,17 @@ async function downloadText(url, target) {
 }
 
 await mkdir(ROOT, { recursive: true });
-for (const asset of assets) {
-  await downloadBinary(asset.url, resolve(ROOT, asset.name), asset.minBytes);
-}
+for (const asset of assets) await downloadBinary(asset.url, resolve(ROOT, asset.name), asset.minBytes);
+
+await mkdir(ANIMATION_ROOT, { recursive: true });
+await downloadBinary(
+  `${COMMUNITY_MIRROR}/Rig_Medium_CombatMelee.glb`,
+  resolve(ANIMATION_ROOT, 'Rig_Medium_CombatMelee.glb'),
+  900_000
+);
+
 await downloadText(`${OFFICIAL}/LICENSE.txt`, resolve(LICENSE_DIR, 'KayKit-Adventurers-CC0.txt'));
+await downloadText(
+  'https://raw.githubusercontent.com/GeorgeQLe/assets-kaykit-3d-characters/main/LICENSES/KayKit-CC0-License.txt',
+  resolve(LICENSE_DIR, 'KayKit-Character-Animations-CC0.txt')
+);
