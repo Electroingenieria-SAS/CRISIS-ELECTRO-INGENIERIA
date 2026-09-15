@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Collider, CombatHitResult, WorldObjectDefinition } from '../types';
+import { emitAudioCue } from './AudioCue';
 import type { SurfaceMaterial, WorldObjectCategory } from './GameplayComponents';
 import { GameLogger } from './GameLogger';
 import { WorldObjectRegistry } from '../world/WorldObjectRegistry';
@@ -68,6 +69,7 @@ export class DamageSystem {
       const material = this.material(entry);
       reactedIds.push(entry.id);
       this.spawnImpact(targetWorld, material, normalized);
+      if (reactedIds.length === 1) this.emitImpactAudio(material);
 
       if (category === 'MOVABLE') {
         const bridge = entry.object.userData.v9PhysicsBridge as BodyHitBridge | undefined;
@@ -127,6 +129,7 @@ export class DamageSystem {
       baseRotation: entry.object.rotation.clone(),
       fragmented: false
     });
+    emitAudioCue('break');
     GameLogger.interaction('break sequence', entry.id);
   }
 
@@ -157,6 +160,13 @@ export class DamageSystem {
       }
       this.breaks.delete(id);
     }
+  }
+
+  private emitImpactAudio(material: SurfaceMaterial): void {
+    if (material === 'WOOD' || material === 'CARDBOARD') emitAudioCue('hit-wood');
+    else if (material === 'METAL') emitAudioCue('hit-metal');
+    else if (material === 'STONE') emitAudioCue('hit-stone');
+    else emitAudioCue('hit-generic');
   }
 
   private spawnImpact(position: THREE.Vector3, material: SurfaceMaterial, normal: THREE.Vector3): void {
