@@ -4,7 +4,7 @@ V8 es la línea oficial de desarrollo. No se permiten art-passes superpuestos so
 
 ## Estado de la vertical slice
 
-La integración funcional de **Almacén → Producción → Calidad** está cerrada a nivel de sistemas. El único gate restante antes de declarar el HEAD definitivo es CI + eliminación del `WorldCore.ts` legado + segundo CI + Pages.
+La integración funcional de **Almacén → Producción → Calidad** quedó cerrada. El runtime definitivo usa `WorldEnvironmentCore.ts`; el `WorldCore.ts` heredado fue retirado después de que la integración completa superó TypeScript, build de producción y presupuesto de bundle.
 
 ## Arquitectura activa
 - Runtime V8 independiente.
@@ -24,7 +24,7 @@ La integración funcional de **Almacén → Producción → Calidad** está cerr
 - Pasada final de colliders para estación de recepción, gabinetes, barreras y jaula de cuarentena.
 
 ## Producción
-- La celda CT-48 reemplaza la antigua lectura de terminales abstractos por OT/set-up, interlocks, transportador, tablero de estado y primera pieza.
+- La celda CT-48 integra OT/set-up, interlocks, transportador, tablero de estado y primera pieza.
 - Pasada final de colliders para estación de briefing, transportador, barreras, cuatro mecanismos, tablero y puesto de primera pieza.
 
 ## Calidad
@@ -61,10 +61,11 @@ La integración funcional de **Almacén → Producción → Calidad** está cerr
 ## Documentación
 La arquitectura y contratos finales están documentados en `docs/V8_SYSTEMS.md`.
 
-## Gate de cierre
-1. Ejecutar `v8-build.yml` sobre esta integración.
-2. Si es verde, eliminar `src/v8/WorldCore.ts` legado.
-3. Ejecutar nuevamente CI sobre el HEAD sin legado.
-4. Confirmar `v8-pages.yml` verde y validar el sitio publicado.
+## Validación y despliegue
+La integración previa a limpieza superó:
+1. instalación de dependencias;
+2. TypeScript + build de producción;
+3. presupuesto de bundle;
+4. publicación del artefacto `dist/`.
 
-Solo después del punto 4 la vertical slice se considera desplegada definitivamente.
+El HEAD definitivo, ya sin `WorldCore.ts`, debe superar nuevamente `v8-build.yml`; `v8-pages.yml` publica ese mismo HEAD en GitHub Pages. La vertical slice solo se considera desplegada cuando ambos workflows finalizan correctamente.
