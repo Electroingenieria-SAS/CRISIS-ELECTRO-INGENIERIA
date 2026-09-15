@@ -7,7 +7,9 @@
     "node": "22.x"
   },
   "scripts": {
-    "assets:kaykit": "node scripts/acquire-kaykit-engineer-bases.mjs",
+    "assets:characters": "node scripts/acquire-kaykit-engineer-bases.mjs",
+    "assets:environment": "node scripts/acquire-kaykit-environment.mjs",
+    "assets:kaykit": "npm run assets:characters && npm run assets:environment",
     "predev": "npm run assets:kaykit",
     "dev": "vite --host 0.0.0.0",
     "prebuild": "npm run assets:kaykit",
