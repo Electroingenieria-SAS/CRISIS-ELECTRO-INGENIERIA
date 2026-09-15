@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CharacterAnimator, type CharacterAction } from './animation/CharacterAnimator';
+import { EngineerHeroCharacter } from './characters/EngineerHeroCharacter';
 import { HeroCharacter } from './characters/HeroCharacter';
 import type { Collider, PlayerProfile } from './types';
 import type { Input } from './Input';
@@ -22,9 +23,10 @@ export class Player {
 
   constructor(private profile: PlayerProfile) {
     this.group.name = 'V8_PLAYER';
-    this.buildHero();
+    this.buildFallbackHero();
     this.carrySocket.position.set(0, 1.42, 0.78);
     this.group.add(this.carrySocket);
+    void this.promoteToEngineerHero();
   }
 
   update(dt: number, input: Input, colliders: Collider[], screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
@@ -98,7 +100,12 @@ export class Player {
     return { id, object };
   }
 
-  private buildHero(): void {
+  /**
+   * The procedural avatar is only a technical fallback while the local GLB is
+   * parsed. It stays hidden during normal operation so the player never sees a
+   * body swap after leaving the creator.
+   */
+  private buildFallbackHero(): void {
     const role = this.profile.role === 'quality' ? 'quality' : this.profile.role === 'process' ? 'production' : 'maintenance';
     const hero = new HeroCharacter();
     const model = hero.create({
@@ -109,11 +116,10 @@ export class Player {
     });
 
     this.visual = model.visual;
-    this.visual.name = 'V8_HERO_CANONICAL';
+    this.visual.name = 'V8_HERO_FALLBACK';
+    this.visual.visible = false;
     this.group.add(this.visual);
     this.animator = new CharacterAnimator({ ...model.rig, root: this.group, visual: this.visual });
-    this.group.userData.heroAppearance = this.profile.appearance;
-    this.group.userData.heroCanonical = true;
 
     const shadow = new THREE.Mesh(
       new THREE.CircleGeometry(0.52, 28),
@@ -123,6 +129,28 @@ export class Player {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.015;
     this.group.add(shadow);
+  }
+
+  private async promoteToEngineerHero(): Promise<void> {
+    const fallback = this.visual;
+    try {
+      const hero = await new EngineerHeroCharacter().load(this.profile.appearance);
+      if (this.carriedId) {
+        fallback.visible = true;
+        return;
+      }
+
+      this.group.remove(fallback);
+      this.visual = hero.root;
+      this.visual.name = 'V8_HERO_KAYKIT_ENGINEER';
+      this.group.add(this.visual);
+      this.animator = hero.animator;
+      this.group.userData.heroAppearance = this.profile.appearance;
+      this.group.userData.heroCanonical = 'kaykit-engineer';
+    } catch (error) {
+      console.warn('[V8] KayKit engineer hero unavailable; enabling fallback.', error);
+      fallback.visible = true;
+    }
   }
 
   private collides(position: THREE.Vector3, colliders: Collider[]): boolean {
