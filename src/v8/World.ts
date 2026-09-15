@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { World as EnvironmentWorld } from './WorldEnvironmentCore';
+import { CarryGripConstraint } from './gameplay/CarryGripConstraint';
 import { DoorComponent } from './gameplay/DoorComponent';
 import { DEFAULT_CARRY_CONFIG, type CarryConfig } from './gameplay/GameplayComponents';
 import { KinematicPhysicsWorld } from './gameplay/KinematicPhysicsWorld';
@@ -14,6 +15,7 @@ export class World extends EnvironmentWorld {
   private readonly doors: DoorComponent[] = [];
   private readonly lastPlayerForward = new THREE.Vector3(0, 0, 1);
   private readonly v9Debug = new V9DebugOverlay();
+  private readonly carryGripConstraint = new CarryGripConstraint();
   private debugEnabled = false;
 
   override init(): void {
@@ -32,7 +34,9 @@ export class World extends EnvironmentWorld {
     for (const door of this.doors) door.update(dt);
     this.physics.step(dt);
     super.update(dt, playerPosition);
-    this.v9Debug.update(this.group.parent ?? this.group, this.registry.all(), this.doors);
+    const sceneRoot = this.group.parent ?? this.group;
+    this.carryGripConstraint.update(sceneRoot, dt);
+    this.v9Debug.update(sceneRoot, this.registry.all(), this.doors);
   }
 
   override resolvePlayerMovement(current: THREE.Vector3, desired: THREE.Vector3, radius = 0.42): THREE.Vector3 {
