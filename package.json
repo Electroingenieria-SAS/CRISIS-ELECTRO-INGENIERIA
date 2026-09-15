@@ -7,10 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "assets:character": "node scripts/fetch-character-assets.mjs",
-    "predev": "npm run assets:character",
     "dev": "vite --host 0.0.0.0",
-    "prebuild": "npm run assets:character",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
