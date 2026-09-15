@@ -2,11 +2,26 @@ import * as THREE from 'three';
 
 export type ZoneId = 'control' | 'warehouse' | 'production' | 'quality' | 'maintenance' | 'dispatch' | 'capa';
 
+export type HeroHairStyle = 'short' | 'side' | 'buzz' | 'wave';
+export type HeroBuild = 'slim' | 'standard' | 'athletic';
+export type HeroUniform = 'navy' | 'graphite' | 'teal';
+
+export type HeroAppearance = {
+  build: HeroBuild;
+  skin: string;
+  hair: string;
+  hairStyle: HeroHairStyle;
+  uniform: HeroUniform;
+  vest: string;
+  glasses: boolean;
+};
+
 export type PlayerProfile = {
   name: string;
   team: string;
   role: 'quality' | 'process' | 'maintenance';
   accent: string;
+  appearance: HeroAppearance;
 };
 
 export type Collider = {
