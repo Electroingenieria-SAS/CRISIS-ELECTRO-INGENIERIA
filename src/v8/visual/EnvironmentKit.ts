@@ -4,7 +4,7 @@ import { IndustrialKit, INDUSTRIAL_COLORS as C } from './IndustrialKit';
 export class EnvironmentKit {
   readonly industrial = new IndustrialKit();
 
-  wall(length: number, height = 4.4, thickness = 0.28, material: THREE.Material = this.industrial.materials.white, accent = C.blue): THREE.Group {
+  wall(length: number, height = 4.4, thickness = 0.28, material: THREE.Material = this.industrial.materials.white, accent: number = C.blue): THREE.Group {
     const group = new THREE.Group();
     const body = this.industrial.box(length, height, thickness, material);
     body.position.y = height / 2;
@@ -32,7 +32,7 @@ export class EnvironmentKit {
     return group;
   }
 
-  wallWithDoor(length: number, doorWidth = 2.5, height = 4.4, accent = C.blue): { group: THREE.Group; opening: { left: number; right: number } } {
+  wallWithDoor(length: number, doorWidth = 2.5, height = 4.4, accent: number = C.blue): { group: THREE.Group; opening: { left: number; right: number } } {
     const group = new THREE.Group();
     const sideLength = Math.max(0.5, (length - doorWidth) / 2);
     const left = this.wall(sideLength, height, 0.28, this.industrial.materials.white, accent);
@@ -54,7 +54,7 @@ export class EnvironmentKit {
     return { group, opening: { left: -doorWidth / 2, right: doorWidth / 2 } };
   }
 
-  windowBay(width = 3.2, height = 2.0, accent = C.blue): THREE.Group {
+  windowBay(width = 3.2, height = 2.0, accent: number = C.blue): THREE.Group {
     const group = new THREE.Group();
     const frame = this.industrial.box(width + 0.18, height + 0.18, 0.12, this.industrial.materials.steelDark);
     frame.position.y = height / 2;
@@ -87,7 +87,7 @@ export class EnvironmentKit {
     return group;
   }
 
-  bollard(height = 0.8, accent = C.yellow): THREE.Group {
+  bollard(height = 0.8, accent: number = C.yellow): THREE.Group {
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.48, metalness: 0.12 });
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, height, 12), mat);
