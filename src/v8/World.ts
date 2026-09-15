@@ -4,32 +4,35 @@ import { DoorComponent } from './gameplay/DoorComponent';
 import { DEFAULT_CARRY_CONFIG, type CarryConfig } from './gameplay/GameplayComponents';
 import { KinematicPhysicsWorld } from './gameplay/KinematicPhysicsWorld';
 import { GameLogger } from './gameplay/GameLogger';
+import { V9DebugOverlay } from './gameplay/V9DebugOverlay';
 import type { WorldContextTarget } from './types';
 import { installVerticalSliceFurnitureColliders } from './world/ZoneCollisionProfiles';
 
-/**
- * Public V9 world entry point layered over the stable V8 compositor.
- * Existing level geometry stays intact; V9 adds professional reusable systems
- * while the V8 branch remains recoverable at its deployed commit.
- */
+/** Public V9 world entry point layered over the stable V8 compositor. */
 export class World extends EnvironmentWorld {
   private readonly physics = new KinematicPhysicsWorld(this.colliders);
   private readonly doors: DoorComponent[] = [];
   private readonly lastPlayerForward = new THREE.Vector3(0, 0, 1);
+  private readonly v9Debug = new V9DebugOverlay();
+  private debugEnabled = false;
 
   override init(): void {
+    GameLogger.configureFromLocation();
     super.init();
     installVerticalSliceFurnitureColliders(this.colliders);
     this.registerCarryableBodies();
     this.adoptLegacyDoor();
     this.protectFunctionalLever();
     this.group.name = 'V9_WORLD';
+    this.group.add(this.v9Debug.group);
+    this.auditAndTuneRendering();
   }
 
   override update(dt: number, playerPosition?: THREE.Vector3): void {
     for (const door of this.doors) door.update(dt);
     this.physics.step(dt);
     super.update(dt, playerPosition);
+    this.v9Debug.update(this.group.parent ?? this.group, this.registry.all(), this.doors);
   }
 
   override resolvePlayerMovement(current: THREE.Vector3, desired: THREE.Vector3, radius = 0.42): THREE.Vector3 {
@@ -46,6 +49,12 @@ export class World extends EnvironmentWorld {
       3.0,
       this.lastPlayerForward
     );
+  }
+
+  override toggleDebug(): boolean {
+    this.debugEnabled = super.toggleDebug();
+    this.v9Debug.setEnabled(this.debugEnabled);
+    return this.debugEnabled;
   }
 
   bodyState(id: string): string | null {
@@ -86,7 +95,6 @@ export class World extends EnvironmentWorld {
     this.doors.push(door);
   }
 
-  /** Protect V8 functional lever children before the optional GLTF arrives. */
   private protectFunctionalLever(): void {
     const entry = this.registry.get('control-training-lever');
     if (!entry?.state) return;
@@ -141,17 +149,22 @@ export class World extends EnvironmentWorld {
         setCarried: () => {
           this.physics.setBodyType(carryable.id, 'KINEMATIC');
           this.physics.setEnabled(carryable.id, true);
+          carryable.object.userData.physicsBodyType = 'KINEMATIC';
         },
         release: (position: THREE.Vector3) => {
           this.physics.teleport(carryable.id, position);
-          this.physics.setBodyType(carryable.id, carryable.id.startsWith('env-') ? 'DYNAMIC' : 'STATIC');
+          const type = carryable.id.startsWith('env-') ? 'DYNAMIC' : 'STATIC';
+          this.physics.setBodyType(carryable.id, type);
+          carryable.object.userData.physicsBodyType = type;
         },
         launch: (velocity: THREE.Vector3) => {
           this.physics.launch(carryable.id, velocity);
+          carryable.object.userData.physicsBodyType = 'DYNAMIC';
         },
         hit: (impulse: THREE.Vector3) => {
           if (this.physics.get(carryable.id)?.bodyType !== 'DYNAMIC') this.physics.setBodyType(carryable.id, 'DYNAMIC');
           this.physics.applyImpulse(carryable.id, impulse);
+          carryable.object.userData.physicsBodyType = 'DYNAMIC';
         }
       };
 
@@ -161,6 +174,40 @@ export class World extends EnvironmentWorld {
     }
     GameLogger.physics('registered carryable bodies', this.carryables.size);
   }
+
+  private auditAndTuneRendering(): void {
+    const scene = this.group.parent;
+    if (!scene) return;
+    const signatures = new Map<string, string>();
+    const duplicates: Array<[string, string]> = [];
+    scene.updateMatrixWorld(true);
+
+    scene.traverse((node) => {
+      if (node instanceof THREE.DirectionalLight && node.castShadow) {
+        node.shadow.bias = -0.00018;
+        node.shadow.normalBias = 0.035;
+        node.shadow.radius = 1.5;
+      }
+      if (!(node instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      for (const material of materials) {
+        if ((material instanceof THREE.MeshStandardMaterial || material instanceof THREE.MeshPhysicalMaterial || material instanceof THREE.MeshBasicMaterial)
+          && material.transparent && 'opacity' in material && material.opacity < 0.95) {
+          material.depthWrite = false;
+        }
+      }
+
+      node.getWorldPosition(this.lastAuditPosition);
+      const key = `${node.geometry.uuid}|${this.lastAuditPosition.x.toFixed(4)}|${this.lastAuditPosition.y.toFixed(4)}|${this.lastAuditPosition.z.toFixed(4)}|${node.getWorldQuaternion(this.lastAuditQuaternion).toArray().map((v) => v.toFixed(3)).join(',')}`;
+      const previous = signatures.get(key);
+      if (previous) duplicates.push([previous, node.name || node.uuid]);
+      else signatures.set(key, node.name || node.uuid);
+    });
+    if (duplicates.length) GameLogger.rendering('exact overlapping mesh candidates', duplicates);
+  }
+
+  private readonly lastAuditPosition = new THREE.Vector3();
+  private readonly lastAuditQuaternion = new THREE.Quaternion();
 
   private inferWeight(id: string, largestDimension: number): CarryConfig['weightClass'] {
     if (id.startsWith('pallet-') || largestDimension > 1.8) return 'HEAVY';
