@@ -1,20 +1,14 @@
 import * as THREE from 'three';
-import { CharacterAnimator } from '../animation/CharacterAnimator';
 import type { HeroAppearance } from '../types';
-import { HeroCharacter } from './HeroCharacter';
+import { EngineerHeroCharacter, type EngineerHeroAsset } from './EngineerHeroCharacter';
 
-type PreviewAsset = {
-  visual: THREE.Group;
-  animator: CharacterAnimator;
-};
-
-/** Live preview of the exact same canonical hero used during gameplay. */
+/** Live preview of the exact same KayKit engineer used during gameplay. */
 export class HeroCustomizerPreview {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(31, 1, 0.1, 30);
   private readonly clock = new THREE.Clock();
-  private current: PreviewAsset | null = null;
+  private current: EngineerHeroAsset | null = null;
   private frame = 0;
   private generation = 0;
   private disposed = false;
@@ -27,7 +21,7 @@ export class HeroCustomizerPreview {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.4));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.04;
+    this.renderer.toneMappingExposure = 1.02;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.className = 'v8-customizer-canvas';
@@ -36,9 +30,9 @@ export class HeroCustomizerPreview {
 
     this.scene.background = new THREE.Color(0x09151d);
     this.scene.fog = new THREE.Fog(0x09151d, 7.5, 14);
-    this.scene.add(new THREE.HemisphereLight(0xdff4ff, 0x17252c, 1.85));
+    this.scene.add(new THREE.HemisphereLight(0xdff4ff, 0x17252c, 1.75));
 
-    const key = new THREE.DirectionalLight(0xffefd5, 3.25);
+    const key = new THREE.DirectionalLight(0xffefd5, 3.0);
     key.position.set(-3.4, 5.8, 4.6);
     key.castShadow = true;
     key.shadow.mapSize.set(768, 768);
@@ -48,20 +42,20 @@ export class HeroCustomizerPreview {
     key.shadow.camera.bottom = -1;
     this.scene.add(key);
 
-    const rim = new THREE.DirectionalLight(0x57bff2, 2.35);
+    const rim = new THREE.DirectionalLight(0x57bff2, 2.1);
     rim.position.set(4.2, 3.8, -3.5);
     this.scene.add(rim);
 
-    const faceFill = new THREE.PointLight(0xd9f3ff, 1.2, 8);
-    faceFill.position.set(0.2, 2.45, 3.8);
+    const faceFill = new THREE.PointLight(0xd9f3ff, 1.15, 8);
+    faceFill.position.set(0.2, 2.35, 3.8);
     this.scene.add(faceFill);
 
-    const warmFill = new THREE.PointLight(0xf3c83f, 0.5, 8);
+    const warmFill = new THREE.PointLight(0xf3c83f, 0.42, 8);
     warmFill.position.set(-2.5, 1.5, 2.4);
     this.scene.add(warmFill);
 
     const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(2.25, 64),
+      new THREE.CircleGeometry(2.3, 64),
       new THREE.MeshStandardMaterial({ color: 0x111f27, roughness: 0.82, metalness: 0.08 })
     );
     floor.rotation.x = -Math.PI / 2;
@@ -69,15 +63,16 @@ export class HeroCustomizerPreview {
     this.scene.add(floor);
 
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(1.34, 0.018, 8, 96),
-      new THREE.MeshBasicMaterial({ color: 0x3c9cc8, transparent: true, opacity: 0.44 })
+      new THREE.TorusGeometry(1.42, 0.018, 8, 96),
+      new THREE.MeshBasicMaterial({ color: 0x3c9cc8, transparent: true, opacity: 0.42 })
     );
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 0.02;
     this.scene.add(ring);
 
-    this.camera.position.set(0.25, 2.05, 5.15);
-    this.camera.lookAt(0, 1.25, 0);
+    // Frontal evaluation view; drag horizontally to inspect silhouette and PPE.
+    this.camera.position.set(0.18, 1.86, 4.85);
+    this.camera.lookAt(0, 1.28, 0);
 
     this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointermove', this.onPointerMove);
@@ -92,28 +87,26 @@ export class HeroCustomizerPreview {
   async setAppearance(appearance: HeroAppearance): Promise<void> {
     const generation = ++this.generation;
     try {
-      const hero = new HeroCharacter();
-      const model = hero.create({
-        name: 'Investigador',
-        role: 'quality',
-        accent: new THREE.Color(appearance.vest).getHex(),
-        appearance
-      });
-      const animator = new CharacterAnimator({ ...model.rig, root: model.root, visual: model.visual });
-      const next: PreviewAsset = { visual: model.visual, animator };
+      const next = await new EngineerHeroCharacter().load(appearance);
+      if (this.disposed || generation !== this.generation) {
+        next.animator.dispose();
+        return;
+      }
 
-      if (this.disposed || generation !== this.generation) return;
+      if (this.current) {
+        this.scene.remove(this.current.root);
+        this.current.animator.dispose();
+      }
 
-      if (this.current) this.scene.remove(this.current.visual);
       this.current = next;
-      next.visual.position.set(0, 0, 0);
-      next.visual.rotation.y = this.yaw;
+      next.root.position.set(0, 0, 0);
+      next.root.rotation.y = this.yaw;
       next.animator.setLocomotion(false, false, false);
-      this.scene.add(next.visual);
+      this.scene.add(next.root);
       this.host.classList.add('is-ready');
       this.host.classList.remove('is-error');
     } catch (error) {
-      console.warn('[V8] Hero customizer preview unavailable.', error);
+      console.warn('[V8] Engineer hero customizer preview unavailable.', error);
       this.host.classList.add('is-error');
     }
   }
@@ -126,6 +119,7 @@ export class HeroCustomizerPreview {
     window.removeEventListener('pointerup', this.onPointerUp);
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     cancelAnimationFrame(this.frame);
+    this.current?.animator.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -154,7 +148,7 @@ export class HeroCustomizerPreview {
     const dt = Math.min(this.clock.getDelta(), 0.04);
     if (this.current) {
       this.current.animator.update(dt);
-      this.current.visual.rotation.y = THREE.MathUtils.lerp(this.current.visual.rotation.y, this.yaw, 0.18);
+      this.current.root.rotation.y = THREE.MathUtils.lerp(this.current.root.rotation.y, this.yaw, 0.18);
     }
     this.renderer.render(this.scene, this.camera);
   };
