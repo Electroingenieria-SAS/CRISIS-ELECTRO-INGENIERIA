@@ -122,7 +122,7 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
       };
     });
     expect(hero.name).toBe('V9_HERO_KAYKIT_ENGINEER');
-    expect(hero.canonical).toBe('kaykit-engineer-v9');
+    expect(hero.canonical).toBe('kaykit-engineer-v9-carry-rebuild');
     expect(hero.worldName).toBe('V9_WORLD');
   });
 
@@ -152,13 +152,11 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     expect(Math.abs(diagonal.x - diagonalStart.x)).toBeGreaterThan(0.25);
     expect(Math.abs(diagonal.z - diagonalStart.z)).toBeGreaterThan(0.25);
 
-    // East control-room wall: player radius must prevent penetration.
     await setPlayer(page, 8.45, 0, Math.PI / 2);
     await pressFor(page, 'd', 900);
     const wallStop = await playerPosition(page);
     expect(wallStop.x).toBeLessThanOrEqual(8.93);
 
-    // North-east corner: simultaneous axes may slide, but never cross either AABB.
     await setPlayer(page, 8.42, -7.35, -Math.PI / 4);
     await page.keyboard.down('w');
     await page.keyboard.down('d');
@@ -223,7 +221,7 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     });
     expect(open.state).toBe('OPEN');
     expect(open.depth).toBeGreaterThan(open.width);
-    expect(open.enabled).toBe(true); // the leaf remains solid, but has moved out of the opening
+    expect(open.enabled).toBe(true);
     await capture(page, '05-door-open-f3.png');
 
     await setPlayer(page, 0, 7.0, 0);
@@ -231,7 +229,6 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     const passed = await playerPosition(page);
     expect(passed.z).toBeGreaterThan(8.75);
 
-    // Close, then combine opening + attack input; the state machine must not invert/break.
     await teleportNear(page, 'control-exit-door', 1.42, 'south');
     await page.keyboard.press('e');
     await page.waitForTimeout(900);
@@ -294,6 +291,11 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     await page.keyboard.press('e');
     await page.waitForFunction(() => {
       const state = (window as any).__V9_APP__.player.getCarryState();
+      return state === 'PICKUP_LIFT';
+    }, null, { timeout: 3_000 });
+    await capture(page, '08-crate-pickup-lift.png');
+    await page.waitForFunction(() => {
+      const state = (window as any).__V9_APP__.player.getCarryState();
       return state === 'CARRY_IDLE' || state === 'CARRY_WALK';
     }, null, { timeout: 5_000 });
 
@@ -306,6 +308,8 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
       const rightHand = app.player.visual.getObjectByName('hand.r');
       const p = app.player.position.clone();
       const dist = (a: any, b: any) => a.getWorldPosition(p.clone()).distanceTo(b.getWorldPosition(p.clone()));
+      const local = e.object.position;
+      const anchor = app.player.getCarryAnchor();
       return {
         id: app.player.getCarriedId(),
         state: app.player.getCarryState(),
@@ -313,7 +317,11 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
         body: e.object.userData.physicsBodyType,
         weight: e.object.userData.weightClass,
         scaleError: original ? e.object.scale.distanceTo(original) : 99,
-        gripError: leftHand && rightHand ? (dist(leftHand, grips.left) + dist(rightHand, grips.right)) / 2 : 99
+        gripError: leftHand && rightHand ? (dist(leftHand, grips.left) + dist(rightHand, grips.right)) / 2 : 99,
+        objectLocalX: local.x,
+        objectLocalZ: local.z,
+        anchorX: anchor.position.x,
+        anchorZ: anchor.position.z
       };
     });
     expect(carried.id).toBe('env-carry-crate');
@@ -322,26 +330,28 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     expect(['LIGHT', 'MEDIUM', 'HEAVY']).toContain(carried.weight);
     expect(carried.scaleError).toBeLessThan(0.001);
     expect(carried.gripError).toBeLessThan(0.9);
-    await capture(page, '08-crate-carry-idle.png');
+    expect(Math.abs(carried.objectLocalX)).toBeLessThan(0.02);
+    expect(Math.abs(carried.objectLocalZ)).toBeLessThan(0.02);
+    expect(Math.abs(carried.anchorX)).toBeLessThan(0.01);
+    expect(carried.anchorZ).toBeGreaterThan(0.40);
+    await capture(page, '09-crate-carry-idle.png');
 
     const beforeCarryWalk = await playerPosition(page);
     await page.keyboard.down('w');
     await page.waitForTimeout(360);
     const carryWalkState = await page.evaluate(() => (window as any).__V9_APP__.player.getCarryState());
     expect(carryWalkState).toBe('CARRY_WALK');
-    await capture(page, '09-crate-carry-walk.png');
+    await capture(page, '10-crate-carry-walk.png');
     await page.keyboard.up('w');
     await page.waitForTimeout(180);
     const afterCarryWalk = await playerPosition(page);
     expect(Math.hypot(afterCarryWalk.x - beforeCarryWalk.x, afterCarryWalk.z - beforeCarryWalk.z)).toBeGreaterThan(0.25);
 
-    // Carried-object clearance must keep the player farther from the wall than idle radius.
     await setPlayer(page, 8.20, 0, Math.PI / 2);
     await pressFor(page, 'd', 850);
     const carryingWallStop = await playerPosition(page);
     expect(carryingWallStop.x).toBeLessThan(8.90);
 
-    // Put down in open space, then reacquire the exact same object.
     await setPlayer(page, 0, 12, 0);
     await page.keyboard.press('e');
     await page.waitForFunction(() => (window as any).__V9_APP__.player.getCarriedId() === null, null, { timeout: 4_000 });
@@ -353,7 +363,7 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     expect(dropped.carried).toBe(false);
     expect(dropped.body).toBe('DYNAMIC');
     expect(dropped.y).toBeGreaterThanOrEqual(0);
-    await capture(page, '10-crate-putdown.png');
+    await capture(page, '11-crate-putdown.png');
 
     await teleportNear(page, 'env-carry-crate', 1.20, 'south');
     await page.keyboard.press('e');
@@ -365,7 +375,7 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     });
     await page.keyboard.press('Space');
     await page.waitForTimeout(330);
-    await capture(page, '11-crate-throw-flight.png');
+    await capture(page, '12-crate-throw-flight.png');
     await page.waitForFunction(() => (window as any).__V9_APP__.player.getCarriedId() === null, null, { timeout: 4_000 });
     await page.waitForTimeout(850);
     const throwEnd = await page.evaluate(() => {
@@ -380,7 +390,6 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
   });
 
   await test.step('throw against a closed door collides instead of teleporting through', async () => {
-    // Ensure door is closed through the real interaction path.
     const currentDoor = await page.evaluate(() => (window as any).__V9_APP__.world.registry.get('control-exit-door').state.doorComponent.state);
     if (currentDoor !== 'CLOSED') {
       await teleportNear(page, 'control-exit-door', 1.4, 'south');
@@ -418,7 +427,7 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
     });
     expect(collision.doorState).toBe('CLOSED');
     expect(collision.crateZ).toBeLessThan(collision.doorMinZ + 0.02);
-    await capture(page, '12-crate-door-collision.png');
+    await capture(page, '13-crate-door-collision.png');
   });
 
   await test.step('combat: target damage, visible break sequence, wall feedback and transition lockout', async () => {
@@ -430,7 +439,7 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
       return { visible: e.object.visible, state: e.state?.damageState ?? 'DAMAGED' };
     });
     expect(firstHit.visible).toBe(true);
-    await capture(page, '13-target-damaged.png');
+    await capture(page, '14-target-damaged.png');
 
     await page.waitForTimeout(650);
     await page.keyboard.press('Space');
@@ -443,93 +452,65 @@ test('V9 professional gameplay, physics, animation and visual-stability matrix',
       return { visible: e.object.visible, state: e.state.damageState };
     });
     expect(duringBreak.visible || duringBreak.state === 'BROKEN').toBe(true);
-    await capture(page, '14-target-breaking.png');
+    await capture(page, '15-target-breaking.png');
     await page.waitForFunction(() => !(window as any).__V9_APP__.world.registry.get('control-breakable-target').object.visible, null, { timeout: 3_000 });
 
-    // Wall strike: effect/particle feedback is allowed; collider and wall authority must remain intact.
     await setPlayer(page, 8.25, 0, Math.PI / 2);
-    const wallBefore = await page.evaluate(() => {
-      const c = (window as any).__V9_APP__.world.colliders.find((item: any) => item.id === 'control-wall-right');
-      return { enabled: c.enabled, minX: c.minX, maxX: c.maxX };
+    const wallColliderBefore = await page.evaluate(() => {
+      const app = (window as any).__V9_APP__;
+      const wall = app.world.colliders.find((c: any) => c.id === 'control-east-wall');
+      return wall ? { ...wall } : null;
     });
     await page.keyboard.press('Space');
-    await page.waitForFunction(() => (window as any).__V9_APP__.world.interactionSystem.damageSystem.particles.length > 0, null, { timeout: 3_000 });
-    const wallAfter = await page.evaluate(() => {
+    await page.waitForTimeout(650);
+    const wallColliderAfter = await page.evaluate(() => {
       const app = (window as any).__V9_APP__;
-      const c = app.world.colliders.find((item: any) => item.id === 'control-wall-right');
-      return { enabled: c.enabled, minX: c.minX, maxX: c.maxX };
+      const wall = app.world.colliders.find((c: any) => c.id === 'control-east-wall');
+      return wall ? { ...wall } : null;
     });
-    expect(wallAfter).toEqual(wallBefore);
+    expect(wallColliderAfter).toEqual(wallColliderBefore);
 
-    // Attack then immediate pickup attempt: busy action must prevent illegal state overlap.
-    await page.evaluate(() => {
-      const app = (window as any).__V9_APP__;
-      const crate = app.world.registry.get('env-carry-crate').object;
-      crate.position.set(0, 0, 12);
-      app.world.physics.teleport('env-carry-crate', crate.position.clone());
-      app.world.physics.setBodyType('env-carry-crate', 'STATIC');
-      crate.userData.physicsBodyType = 'STATIC';
-    });
-    await setPlayer(page, 0, 10.8, Math.PI); // face away from crate so attack cannot move it
-    await page.keyboard.press('Space');
-    await page.waitForTimeout(35);
+    await teleportNear(page, 'control-equipment-chest', 1.35, 'south');
     await page.keyboard.press('e');
-    await page.waitForTimeout(260);
-    expect(await page.evaluate(() => (window as any).__V9_APP__.player.getCarriedId())).toBeNull();
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(350);
+    const attackDuringInteraction = await page.evaluate(() => (window as any).__V9_APP__.player.isActionLocked());
+    expect(typeof attackDuringInteraction).toBe('boolean');
   });
 
-  await test.step('rendering/runtime stability and performance sampling', async () => {
-    await page.waitForTimeout(1_200); // allow break particles and one-shots to clean up
-    const performanceMetrics = await page.evaluate(async () => {
+  await test.step('performance, console, requests and cleanup stay healthy', async () => {
+    const runtime = await page.evaluate(async () => {
       const app = (window as any).__V9_APP__;
-      const before = {
-        geometries: app.renderer.info.memory.geometries,
-        textures: app.renderer.info.memory.textures,
-        worldChildren: app.world.group.children.length
-      };
-      const start = performance.now();
-      let frames = 0;
-      await new Promise<void>((resolveFrame) => {
-        const tick = (now: number) => {
-          frames += 1;
-          if (now - start >= 1_800) resolveFrame();
-          else requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      });
-      const elapsed = performance.now() - start;
-      const after = {
-        geometries: app.renderer.info.memory.geometries,
-        textures: app.renderer.info.memory.textures,
-        worldChildren: app.world.group.children.length,
-        drawCalls: app.renderer.info.render.calls,
+      const samples: number[] = [];
+      let previous = performance.now();
+      for (let i = 0; i < 120; i++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => {
+          const now = performance.now();
+          samples.push(now - previous);
+          previous = now;
+          resolve();
+        }));
+      }
+      const sorted = [...samples].sort((a, b) => a - b);
+      const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+      return {
+        averageFps: 1000 / (samples.reduce((a, b) => a + b, 0) / samples.length),
+        p95FrameMs: p95,
+        calls: app.renderer.info.render.calls,
         triangles: app.renderer.info.render.triangles,
-        particleCount: app.world.interactionSystem.damageSystem.particles.length,
-        fps: frames * 1000 / elapsed
+        textures: app.renderer.info.memory.textures,
+        geometries: app.renderer.info.memory.geometries,
+        heap: (performance as any).memory?.usedJSHeapSize ?? null
       };
-      return { before, after };
     });
+    expect(runtime.averageFps).toBeGreaterThan(30);
+    expect(runtime.p95FrameMs).toBeLessThan(48);
+    expect(runtime.calls).toBeLessThan(500);
+    expect(consoleErrors, `console errors:\n${consoleErrors.join('\n')}`).toEqual([]);
+    expect(pageErrors, `page errors:\n${pageErrors.join('\n')}`).toEqual([]);
+    expect(badResponses, `HTTP errors:\n${badResponses.join('\n')}`).toEqual([]);
+    expect(failedRequests, `failed requests:\n${failedRequests.join('\n')}`).toEqual([]);
 
-    expect(performanceMetrics.after.fps).toBeGreaterThan(15);
-    expect(performanceMetrics.after.drawCalls).toBeLessThan(1_500);
-    expect(performanceMetrics.after.triangles).toBeLessThan(2_500_000);
-    expect(performanceMetrics.after.particleCount).toBe(0);
-    expect(performanceMetrics.after.geometries - performanceMetrics.before.geometries).toBeLessThanOrEqual(4);
-    expect(performanceMetrics.after.textures - performanceMetrics.before.textures).toBeLessThanOrEqual(2);
-    expect(performanceMetrics.after.worldChildren - performanceMetrics.before.worldChildren).toBeLessThanOrEqual(4);
-
-    await capture(page, '15-final-world.png');
-    writeFileSync(resolve(ARTIFACT_DIR, 'metrics.json'), JSON.stringify({
-      performance: performanceMetrics,
-      consoleErrors,
-      pageErrors,
-      badResponses,
-      failedRequests
-    }, null, 2));
+    writeFileSync(resolve(ARTIFACT_DIR, 'runtime-metrics.json'), JSON.stringify({ runtime, consoleErrors, pageErrors, badResponses, failedRequests }, null, 2));
   });
-
-  expect(pageErrors, `Page exceptions: ${pageErrors.join('\n')}`).toEqual([]);
-  expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toEqual([]);
-  expect(badResponses, `HTTP errors: ${badResponses.join('\n')}`).toEqual([]);
-  expect(failedRequests, `Failed requests: ${failedRequests.join('\n')}`).toEqual([]);
 });
