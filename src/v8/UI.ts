@@ -1,4 +1,5 @@
 import './creator.css';
+import './inventory.css';
 import { HeroCustomizerPreview } from './characters/HeroCustomizerPreview';
 import { STORY, ZONES } from './content';
 import type { GameState, HeroAppearance, PlayerProfile, ZoneId } from './types';
@@ -25,7 +26,7 @@ export class UI {
         <div class="v8-metrics"><span>TIEMPO <b id="v8-time">35:00</b></span><span>PUNTAJE <b id="v8-score">1000</b></span><span>ERRORES <b id="v8-errors">0</b></span></div>
       </header>
       <section class="v8-objective"><small>MISIÓN ACTIVA</small><strong id="v8-objective">Esperando briefing</strong><p id="v8-detail"></p></section>
-      <div class="v8-help"><span><kbd>WASD</kbd> mover</span><span><kbd>SHIFT</kbd> correr</span><span><kbd>E</kbd> interactuar / cargar</span><span><kbd>F</kbd> escáner</span><span><kbd>Q</kbd> mapa</span></div>
+      <div class="v8-help"><span><kbd>WASD</kbd> mover</span><span><kbd>SHIFT</kbd> correr</span><span><kbd>E</kbd> interactuar / cargar</span><span><kbd>F</kbd> escáner</span><span><kbd>Q</kbd> mapa</span><span><kbd>I</kbd> inventario</span><span><kbd>SPACE</kbd> golpe / lanzar</span></div>
       <div class="v8-prompt is-hidden" id="v8-prompt"></div>
       <div class="v8-toast is-hidden" id="v8-toast"></div>
       <div class="v8-modal is-hidden" id="v8-modal"></div>
@@ -267,6 +268,7 @@ export class UI {
   }
 
   async showEvidence(title: string, subtitle: string, rows: Array<[string, string]>): Promise<void> {
+    if (title === 'INVENTARIO DE CAMPO') return this.showInventoryRows(subtitle, rows);
     return new Promise((resolve) => {
       const table = rows.map(([label, value]) => `<div class="v8-evidence-row"><span>${label}</span><b>${value}</b></div>`).join('');
       this.modal.innerHTML = `<div class="v8-evidence"><small>EVIDENCIA DOCUMENTAL</small><h2>${title}</h2><p>${subtitle}</p><div class="v8-evidence-table">${table}</div><button id="v8-evidence-close">REGISTRAR EVIDENCIA →</button></div>`;
@@ -282,6 +284,45 @@ export class UI {
       };
       window.addEventListener('keydown', key);
       this.modal.querySelector('#v8-evidence-close')?.addEventListener('click', done, { once: true });
+    });
+  }
+
+  private async showInventoryRows(subtitle: string, rows: Array<[string, string]>): Promise<void> {
+    return new Promise((resolve) => {
+      const isEmpty = rows.length === 1 && rows[0]?.[0] === 'Inventario' && rows[0]?.[1] === 'Vacío';
+      const iconFor = (label: string): string => {
+        const value = label.toLowerCase();
+        if (value.includes('llave')) return '🔑';
+        if (value.includes('escáner') || value.includes('scanner')) return '⌁';
+        if (value.includes('patrón') || value.includes('bloque')) return '▣';
+        if (value.includes('document') || value.includes('evidencia')) return '▤';
+        if (value.includes('herramient')) return '⚙';
+        return '◆';
+      };
+      const cards = isEmpty
+        ? `<div class="v8-inventory-empty"><b>Inventario vacío</b><span>Los objetos recogidos aparecerán aquí durante la investigación.</span></div>`
+        : rows.map(([label, value]) => {
+            const quantityMatch = value.match(/^x(\d+)/i);
+            const quantity = quantityMatch?.[1] ?? '1';
+            const detail = value.replace(/^x\d+\s*·?\s*/i, '') || 'Objeto de campo';
+            return `<article class="v8-inventory-item"><div class="v8-inventory-item__icon">${iconFor(label)}</div><div><strong>${label}</strong><small>${detail}</small></div><em>x${quantity}</em></article>`;
+          }).join('');
+      const count = isEmpty ? 0 : rows.reduce((total, [, value]) => total + Number(value.match(/^x(\d+)/i)?.[1] ?? 1), 0);
+
+      this.modal.innerHTML = `<section class="v8-inventory"><header><div><small>INVENTARIO DE CAMPO</small><h2>Equipo y hallazgos</h2></div><div class="v8-inventory__count"><b>${count}</b><span>OBJETOS</span></div></header><p>${subtitle}</p><div class="v8-inventory-grid">${cards}</div><footer><button id="v8-inventory-close">CERRAR · I / ESC</button></footer></section>`;
+      this.modal.classList.remove('is-hidden');
+
+      const done = () => {
+        window.removeEventListener('keydown', key);
+        this.modal.classList.add('is-hidden');
+        this.modal.innerHTML = '';
+        resolve();
+      };
+      const key = (event: KeyboardEvent) => {
+        if (event.code === 'KeyI' || event.code === 'Escape' || event.code === 'Enter') done();
+      };
+      window.addEventListener('keydown', key);
+      this.modal.querySelector('#v8-inventory-close')?.addEventListener('click', done, { once: true });
     });
   }
 
