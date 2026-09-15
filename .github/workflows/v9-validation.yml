@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: V9 gameplay system tests
+        run: npm test
+
       - name: TypeScript and production build
         run: npm run build
 
