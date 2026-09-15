@@ -6,44 +6,52 @@ import { RiggedHeroCharacter, type RiggedHeroAsset } from './RiggedHeroCharacter
 export class HeroCustomizerPreview {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.1, 30);
+  private readonly camera = new THREE.PerspectiveCamera(31, 1, 0.1, 30);
   private readonly clock = new THREE.Clock();
   private current: RiggedHeroAsset | null = null;
   private frame = 0;
   private generation = 0;
   private disposed = false;
+  private yaw = -0.06;
+  private dragging = false;
+  private lastPointerX = 0;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.className = 'v8-customizer-canvas';
+    this.renderer.domElement.style.cursor = 'grab';
     this.host.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color(0x09151d);
     this.scene.fog = new THREE.Fog(0x09151d, 7, 14);
-    this.scene.add(new THREE.HemisphereLight(0xdff4ff, 0x1c2a30, 2.25));
+    this.scene.add(new THREE.HemisphereLight(0xdff4ff, 0x1c2a30, 2.1));
 
-    const key = new THREE.DirectionalLight(0xffefd1, 3.2);
-    key.position.set(-3.6, 5.8, 4.2);
+    const key = new THREE.DirectionalLight(0xffefd5, 3.35);
+    key.position.set(-3.4, 5.8, 4.6);
     key.castShadow = true;
-    key.shadow.mapSize.set(512, 512);
+    key.shadow.mapSize.set(768, 768);
     this.scene.add(key);
 
-    const rim = new THREE.DirectionalLight(0x58bff0, 2.4);
-    rim.position.set(4.5, 3.2, -3.5);
+    const rim = new THREE.DirectionalLight(0x57bff2, 2.55);
+    rim.position.set(4.2, 3.8, -3.5);
     this.scene.add(rim);
 
-    const fill = new THREE.PointLight(0xf3c83f, 1.25, 9);
-    fill.position.set(2.2, 2.2, 3.5);
-    this.scene.add(fill);
+    const faceFill = new THREE.PointLight(0xd9f3ff, 1.35, 8);
+    faceFill.position.set(0.2, 2.3, 3.8);
+    this.scene.add(faceFill);
+
+    const warmFill = new THREE.PointLight(0xf3c83f, 0.65, 8);
+    warmFill.position.set(-2.5, 1.5, 2.4);
+    this.scene.add(warmFill);
 
     const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(2.25, 48),
+      new THREE.CircleGeometry(2.25, 64),
       new THREE.MeshStandardMaterial({ color: 0x111f27, roughness: 0.82, metalness: 0.08 })
     );
     floor.rotation.x = -Math.PI / 2;
@@ -51,17 +59,22 @@ export class HeroCustomizerPreview {
     this.scene.add(floor);
 
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(1.32, 0.018, 8, 72),
-      new THREE.MeshBasicMaterial({ color: 0x3c9cc8, transparent: true, opacity: 0.42 })
+      new THREE.TorusGeometry(1.34, 0.018, 8, 96),
+      new THREE.MeshBasicMaterial({ color: 0x3c9cc8, transparent: true, opacity: 0.44 })
     );
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 0.02;
     this.scene.add(ring);
 
-    this.camera.position.set(3.15, 2.25, 5.6);
-    this.camera.lookAt(0, 1.25, 0);
-    this.resize();
+    this.camera.position.set(0.48, 2.05, 5.35);
+    this.camera.lookAt(0, 1.16, 0);
+
+    this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
+    window.addEventListener('pointermove', this.onPointerMove);
+    window.addEventListener('pointerup', this.onPointerUp);
     window.addEventListener('resize', this.resize);
+
+    this.resize();
     this.clock.start();
     this.animate();
   }
@@ -81,7 +94,7 @@ export class HeroCustomizerPreview {
       }
       this.current = next;
       next.root.position.set(0, 0, 0);
-      next.root.rotation.y = -0.34;
+      next.root.rotation.y = this.yaw;
       next.animator.setLocomotion(false, false, false);
       this.scene.add(next.root);
       this.host.classList.add('is-ready');
@@ -95,11 +108,32 @@ export class HeroCustomizerPreview {
     this.disposed = true;
     this.generation += 1;
     window.removeEventListener('resize', this.resize);
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     cancelAnimationFrame(this.frame);
     this.current?.animator.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
+
+  private onPointerDown = (event: PointerEvent): void => {
+    this.dragging = true;
+    this.lastPointerX = event.clientX;
+    this.renderer.domElement.style.cursor = 'grabbing';
+  };
+
+  private onPointerMove = (event: PointerEvent): void => {
+    if (!this.dragging) return;
+    const dx = event.clientX - this.lastPointerX;
+    this.lastPointerX = event.clientX;
+    this.yaw += dx * 0.008;
+  };
+
+  private onPointerUp = (): void => {
+    this.dragging = false;
+    this.renderer.domElement.style.cursor = 'grab';
+  };
 
   private animate = (): void => {
     if (this.disposed) return;
@@ -107,7 +141,7 @@ export class HeroCustomizerPreview {
     const dt = Math.min(this.clock.getDelta(), 0.04);
     if (this.current) {
       this.current.animator.update(dt);
-      this.current.root.rotation.y += dt * 0.14;
+      this.current.root.rotation.y = THREE.MathUtils.lerp(this.current.root.rotation.y, this.yaw, 0.18);
     }
     this.renderer.render(this.scene, this.camera);
   };
