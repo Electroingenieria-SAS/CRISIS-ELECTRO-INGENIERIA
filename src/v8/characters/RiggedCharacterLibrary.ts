@@ -10,6 +10,7 @@ export interface RiggedCharacterClips {
   interact?: THREE.AnimationClip;
   pickup?: THREE.AnimationClip;
   useItem?: THREE.AnimationClip;
+  attack?: THREE.AnimationClip;
 }
 
 interface RiggedSource {
@@ -80,6 +81,21 @@ export class RiggedCharacterLibrary {
       }
       return undefined;
     };
+    const optionalCombat = (): THREE.AnimationClip | undefined => {
+      const exact = optional(
+        'Punch', 'Punch_A', 'Punch_B', 'Unarmed_Punch', 'Unarmed_Attack',
+        'Unarmed_Attack_A', 'Attack', 'Attack_A', 'Attack_1H', 'Attack (1h)'
+      );
+      if (exact) return exact;
+
+      return all.find((clip) => {
+        const name = clip.name.toLowerCase();
+        return name.includes('punch') || (name.includes('unarmed') && name.includes('attack'));
+      }) ?? all.find((clip) => {
+        const name = clip.name.toLowerCase();
+        return name.includes('attack') && !['hit', 'hurt', 'death', 'defeat', 'block'].some((token) => name.includes(token));
+      });
+    };
 
     return {
       scene: character.scene,
@@ -89,7 +105,8 @@ export class RiggedCharacterLibrary {
         run: optional('Running_A', 'Running_B') ?? required('Running_C'),
         interact: optional('Interact', 'Interact_A'),
         pickup: optional('PickUp', 'Pick_Up'),
-        useItem: optional('Use_Item', 'UseItem')
+        useItem: optional('Use_Item', 'UseItem'),
+        attack: optionalCombat()
       }
     };
   }
