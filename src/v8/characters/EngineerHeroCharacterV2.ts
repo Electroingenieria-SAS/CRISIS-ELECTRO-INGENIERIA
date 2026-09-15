@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { HeroAppearance, HeroBuild, HeroPpeStyle } from '../types';
+import type { HeroAppearance, HeroBuild } from '../types';
 import { RiggedCharacterLibrary } from './RiggedCharacterLibrary';
 import { RiggedHeroAnimator } from './RiggedHeroAnimator';
 
@@ -13,16 +13,16 @@ type HeroMaterialsV2 = {
   dark: THREE.MeshStandardMaterial;
   reflective: THREE.MeshPhysicalMaterial;
   helmet: THREE.MeshPhysicalMaterial;
-  hair: THREE.MeshStandardMaterial;
   boots: THREE.MeshPhysicalMaterial;
+  sunglassLens: THREE.MeshPhysicalMaterial;
 };
 
 /**
  * KayKit Adventurer → EI Engineer conversion.
  *
- * Design rule: each selected Adventurer remains the authored visible body.
- * We preserve its face/eyes and rig, remove fantasy accessories, then add a
- * compact industrial PPE kit that follows the same skeleton.
+ * The authored KayKit face and body proportions stay authoritative. Fantasy
+ * meshes are stripped with a strict body-part allow-list and industrial PPE is
+ * layered on top without replacing the face or adding extra eyes.
  */
 export class EngineerHeroCharacterV2 {
   async load(appearance: HeroAppearance): Promise<EngineerHeroAssetV2> {
@@ -36,11 +36,11 @@ export class EngineerHeroCharacterV2 {
     root.add(scene);
 
     const mat = this.materials(appearance);
+    this.stripFantasyProps(scene);
     this.convertKayKitSurface(scene, appearance);
-    this.addHairAccent(scene, appearance, mat);
     this.addIndustrialHelmet(scene, mat);
     if (appearance.glasses) this.addBlackSafetyGlasses(scene, mat);
-    this.addIndustrialPpe(scene, appearance, mat);
+    this.addIndustrialPpe(scene, mat);
     this.addWorkDetails(scene, appearance, mat);
     this.addScanner(scene, mat);
 
@@ -52,18 +52,18 @@ export class EngineerHeroCharacterV2 {
     });
 
     root.userData.heroAsset = `KayKit ${appearance.base} → EI Engineer`;
-    root.userData.heroStyle = 'kaykit-engineer-v3';
+    root.userData.heroStyle = 'kaykit-engineer-v4';
     root.userData.usesKayKitFace = true;
     root.userData.extraEyes = false;
-    root.userData.appearance = { ...appearance };
+    root.userData.fantasyPropsStripped = true;
+    root.userData.appearance = { ...appearance, ppeStyle: 'vest' };
 
     return { root, animator: new RiggedHeroAnimator(root, clips) };
   }
 
   private buildScale(build: HeroBuild): THREE.Vector3 {
-    // Keep authored proportions nearly intact; these are intentionally subtle.
-    if (build === 'slim') return new THREE.Vector3(0.975, 1, 0.975);
-    if (build === 'athletic') return new THREE.Vector3(1.025, 1, 1.015);
+    if (build === 'slim') return new THREE.Vector3(0.985, 1, 0.985);
+    if (build === 'athletic') return new THREE.Vector3(1.015, 1, 1.01);
     return new THREE.Vector3(1, 1, 1);
   }
 
@@ -72,36 +72,55 @@ export class EngineerHeroCharacterV2 {
     return {
       accent: new THREE.MeshPhysicalMaterial({
         color: new THREE.Color(appearance.vest),
-        roughness: 0.54,
+        roughness: 0.50,
         metalness: 0.01,
-        clearcoat: 0.08,
-        clearcoatRoughness: 0.62
+        clearcoat: 0.10,
+        clearcoatRoughness: 0.54
       }),
-      dark: new THREE.MeshStandardMaterial({ color: 0x0b0f12, roughness: 0.66, metalness: 0.04 }),
+      dark: new THREE.MeshStandardMaterial({ color: 0x07090b, roughness: 0.54, metalness: 0.07 }),
       reflective: new THREE.MeshPhysicalMaterial({
-        color: 0xf1f5f4,
-        roughness: 0.26,
+        color: 0xf3f6f5,
+        roughness: 0.24,
         metalness: 0.05,
-        clearcoat: 0.16,
-        emissive: 0x6c8e99,
-        emissiveIntensity: 0.02
+        clearcoat: 0.18,
+        emissive: 0x668590,
+        emissiveIntensity: 0.018
       }),
       helmet: new THREE.MeshPhysicalMaterial({
         color: new THREE.Color(appearance.helmet),
-        roughness: 0.30,
+        roughness: 0.27,
         metalness: 0.01,
-        clearcoat: 0.34,
-        clearcoatRoughness: 0.25
+        clearcoat: 0.42,
+        clearcoatRoughness: 0.20
       }),
-      hair: new THREE.MeshStandardMaterial({ color: new THREE.Color(appearance.hair), roughness: 0.84 }),
       boots: new THREE.MeshPhysicalMaterial({
         color: bootColor,
-        roughness: 0.54,
+        roughness: 0.52,
         metalness: 0.05,
-        clearcoat: 0.07,
-        clearcoatRoughness: 0.58
+        clearcoat: 0.08,
+        clearcoatRoughness: 0.55
+      }),
+      sunglassLens: new THREE.MeshPhysicalMaterial({
+        color: 0x030405,
+        transparent: true,
+        opacity: 0.82,
+        roughness: 0.10,
+        metalness: 0.02,
+        clearcoat: 0.28,
+        clearcoatRoughness: 0.12,
+        depthWrite: true
       })
     };
+  }
+
+  /** Keep only the six authored body meshes. Everything fantasy becomes hidden. */
+  private stripFantasyProps(root: THREE.Object3D): void {
+    const allowed = ['_armleft', '_armright', '_body', '_head', '_legleft', '_legright'];
+    root.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) return;
+      const name = node.name.toLowerCase();
+      node.visible = allowed.some((suffix) => name.includes(suffix));
+    });
   }
 
   private convertKayKitSurface(root: THREE.Object3D, appearance: HeroAppearance): void {
@@ -110,23 +129,9 @@ export class EngineerHeroCharacterV2 {
     const skinTint = new THREE.Color(appearance.skin).lerp(new THREE.Color(0xffffff), 0.30);
 
     root.traverse((node) => {
-      if (!(node instanceof THREE.Mesh)) return;
+      if (!(node instanceof THREE.Mesh) || !node.visible) return;
       const name = node.name.toLowerCase();
-
-      // Remove fantasy identity while keeping the authored body and face.
-      if (
-        name.includes('cape') ||
-        name.includes('helmet') ||
-        name.includes('visor') ||
-        name.includes('quiver') ||
-        name.includes('hood') ||
-        name.includes('hat')
-      ) {
-        node.visible = false;
-        return;
-      }
-
-      if (name.endsWith('_head') || name.includes('_head')) this.tintMappedMesh(node, skinTint, 0.68);
+      if (name.includes('_head')) this.tintMappedMesh(node, skinTint, 0.68);
       else if (name.includes('leg')) this.tintMappedMesh(node, pantsColor, 0.76);
       else if (name.includes('arm') || name.includes('body')) this.tintMappedMesh(node, uniformColor, 0.68);
     });
@@ -148,183 +153,158 @@ export class EngineerHeroCharacterV2 {
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map(cloneMaterial) : cloneMaterial(mesh.material);
   }
 
-  private addHairAccent(root: THREE.Object3D, appearance: HeroAppearance, mat: HeroMaterialsV2): void {
-    if (appearance.hairStyle === 'buzz') return;
-    const head = root.getObjectByName('head');
-    if (!head) return;
-
-    const hair = new THREE.Group();
-    hair.name = `EI_HAIR_${appearance.base.toUpperCase()}`;
-
-    // Hair is deliberately subtle because the hardhat remains mandatory.
-    for (const side of [-1, 1] as const) {
-      const lock = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, appearance.hairStyle === 'wave' ? 0.105 : 0.065, 4, 8), mat.hair);
-      lock.position.set(side * 0.43, 0.56, -0.005);
-      lock.rotation.z = side * 0.10;
-      hair.add(lock);
-    }
-
-    if (appearance.hairStyle === 'side') {
-      const sweep = new THREE.Mesh(new THREE.CapsuleGeometry(0.026, 0.13, 4, 8), mat.hair);
-      sweep.position.set(-0.14, 0.70, 0.27);
-      sweep.rotation.z = -0.72;
-      hair.add(sweep);
-    } else if (appearance.hairStyle === 'wave') {
-      for (const x of [-0.18, 0, 0.18]) {
-        const curl = new THREE.Mesh(new THREE.SphereGeometry(0.047, 10, 7), mat.hair);
-        curl.position.set(x, 0.69 + Math.abs(x) * 0.05, 0.14);
-        hair.add(curl);
-      }
-    }
-    head.add(hair);
-  }
-
+  /**
+   * Industrial hardhat V4: large enough to contain the authored KayKit skull,
+   * lower on the forehead and with a true surrounding lower band. This prevents
+   * the head/hair geometry from piercing through the dome.
+   */
   private addIndustrialHelmet(root: THREE.Object3D, mat: HeroMaterialsV2): void {
     const head = root.getObjectByName('head');
     if (!head) return;
 
     const hardhat = new THREE.Group();
-    hardhat.name = 'EI_ENGINEER_HARDHAT_V3';
+    hardhat.name = 'EI_ENGINEER_HARDHAT_V4';
     hardhat.userData.requiredPPE = true;
 
-    // Lower, enveloping fit: the brim intentionally sits near the brow line.
     const shell = new THREE.Mesh(
-      new THREE.SphereGeometry(0.49, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.54),
+      new THREE.SphereGeometry(0.565, 40, 22, 0, Math.PI * 2, 0, Math.PI * 0.62),
       mat.helmet
     );
-    shell.position.set(0, 0.70, -0.015);
-    shell.scale.set(1.01, 0.76, 0.93);
+    shell.position.set(0, 0.655, -0.010);
+    shell.scale.set(1.00, 0.82, 0.99);
     hardhat.add(shell);
 
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.505, 0.525, 0.035, 36), mat.helmet);
-    brim.position.set(0, 0.625, 0.005);
+    const lowerBand = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.525, 0.535, 0.145, 40, 1, true),
+      mat.helmet
+    );
+    lowerBand.position.set(0, 0.555, -0.005);
+    hardhat.add(lowerBand);
+
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.565, 0.575, 0.025, 40), mat.helmet);
+    brim.position.set(0, 0.510, 0.005);
+    brim.scale.z = 0.94;
     hardhat.add(brim);
 
-    const frontLip = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.026, 0.115), mat.helmet);
-    frontLip.position.set(0, 0.615, 0.435);
+    const frontLip = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.024, 0.125), mat.helmet);
+    frontLip.position.set(0, 0.505, 0.485);
     hardhat.add(frontLip);
 
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.030, 0.035, 0.30), mat.helmet);
-    ridge.position.set(0, 0.965, 0);
-    hardhat.add(ridge);
+    const crownRidge = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.030, 0.34), mat.helmet);
+    crownRidge.position.set(0, 0.995, -0.010);
+    hardhat.add(crownRidge);
 
     head.add(hardhat);
   }
 
+  /** Dark, compact safety sunglasses mounted tightly to the authored face. */
   private addBlackSafetyGlasses(root: THREE.Object3D, mat: HeroMaterialsV2): void {
     const head = root.getObjectByName('head');
     if (!head) return;
 
     const glasses = new THREE.Group();
-    glasses.name = 'EI_BLACK_SAFETY_GLASSES';
+    glasses.name = 'EI_BLACK_SUNGLASSES_V4';
 
-    // No opaque lenses: only a black frame around the original KayKit eyes.
     for (const side of [-1, 1] as const) {
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.105, 0.012, 7, 28), mat.dark);
-      rim.scale.set(1.20, 0.78, 1);
-      rim.position.set(side * 0.145, 0.505, 0.555);
-      glasses.add(rim);
+      const lens = new THREE.Mesh(new THREE.CapsuleGeometry(0.067, 0.085, 6, 16), mat.sunglassLens);
+      lens.rotation.z = Math.PI / 2;
+      lens.scale.z = 0.11;
+      lens.position.set(side * 0.142, 0.468, 0.535);
+      glasses.add(lens);
 
-      const temple = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.014, 0.014), mat.dark);
-      temple.position.set(side * 0.30, 0.515, 0.445);
-      temple.rotation.y = side * 0.45;
-      glasses.add(temple);
+      const outerArm = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.014, 0.014), mat.dark);
+      outerArm.position.set(side * 0.285, 0.472, 0.455);
+      outerArm.rotation.y = side * 0.50;
+      glasses.add(outerArm);
     }
 
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.060, 0.014, 0.014), mat.dark);
-    bridge.position.set(0, 0.515, 0.558);
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.060, 0.016, 0.016), mat.dark);
+    bridge.position.set(0, 0.472, 0.548);
     glasses.add(bridge);
+
     head.add(glasses);
   }
 
-  private addIndustrialPpe(root: THREE.Object3D, appearance: HeroAppearance, mat: HeroMaterialsV2): void {
+  /** Always use the approved squared EI safety vest. */
+  private addIndustrialPpe(root: THREE.Object3D, mat: HeroMaterialsV2): void {
     const chest = root.getObjectByName('chest');
     const hips = root.getObjectByName('hips');
     if (!chest || !hips) return;
 
     const ppe = new THREE.Group();
-    ppe.name = `EI_ENGINEER_PPE_V3_${appearance.ppeStyle.toUpperCase()}`;
-
-    if (appearance.ppeStyle === 'vest') this.buildProfessionalVest(ppe, mat);
-    else if (appearance.ppeStyle === 'harness') this.buildHarness(ppe, mat);
-
+    ppe.name = 'EI_ENGINEER_SQUARE_VEST_V4';
+    this.buildProfessionalVest(ppe, mat);
     this.addIdAndRadio(ppe, mat);
     chest.add(ppe);
 
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.052, 0.42), mat.dark);
-    belt.name = 'EI_ENGINEER_BELT_V3';
-    belt.position.set(0, 0.085, 0.00);
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.050, 0.40), mat.dark);
+    belt.name = 'EI_ENGINEER_BELT_V4';
+    belt.position.set(0, 0.082, 0.00);
     hips.add(belt);
 
-    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.060, 0.036), mat.reflective);
-    buckle.position.set(0, 0.085, 0.228);
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.080, 0.056, 0.034), mat.reflective);
+    buckle.position.set(0, 0.082, 0.220);
     hips.add(buckle);
   }
 
   private buildProfessionalVest(parent: THREE.Group, mat: HeroMaterialsV2): void {
-    // A readable, squared safety vest: flat front panels, center opening and back panel.
+    // One large squared front block deliberately covers the torso cleanly.
+    const front = new THREE.Mesh(new THREE.BoxGeometry(0.565, 0.455, 0.050), mat.accent);
+    front.position.set(0, 0.005, 0.390);
+    parent.add(front);
+
+    // Center opening / zipper gives the block a readable vest construction.
+    const centerSeam = new THREE.Mesh(new THREE.BoxGeometry(0.030, 0.405, 0.012), mat.dark);
+    centerSeam.position.set(0, -0.005, 0.422);
+    parent.add(centerSeam);
+
+    // Shoulder pieces connect the vest visually to the body instead of floating.
     for (const side of [-1, 1] as const) {
-      const panel = new THREE.Mesh(new THREE.BoxGeometry(0.245, 0.43, 0.028), mat.accent);
-      panel.position.set(side * 0.145, 0.005, 0.395);
-      parent.add(panel);
-
-      const upperBand = new THREE.Mesh(new THREE.BoxGeometry(0.205, 0.030, 0.012), mat.reflective);
-      upperBand.position.set(side * 0.145, 0.045, 0.418);
-      parent.add(upperBand);
-
-      const lowerBand = new THREE.Mesh(new THREE.BoxGeometry(0.205, 0.030, 0.012), mat.reflective);
-      lowerBand.position.set(side * 0.145, -0.125, 0.418);
-      parent.add(lowerBand);
-
-      const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.145, 0.060, 0.030), mat.accent);
-      shoulder.position.set(side * 0.20, 0.245, 0.355);
-      shoulder.rotation.z = side * 0.42;
+      const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.145, 0.075, 0.044), mat.accent);
+      shoulder.position.set(side * 0.195, 0.250, 0.335);
+      shoulder.rotation.z = side * 0.30;
       parent.add(shoulder);
     }
 
-    const centerOpening = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.39, 0.035), mat.dark);
-    centerOpening.position.set(0, 0.015, 0.416);
-    parent.add(centerOpening);
+    const upperBand = new THREE.Mesh(new THREE.BoxGeometry(0.485, 0.030, 0.014), mat.reflective);
+    upperBand.position.set(0, 0.060, 0.423);
+    parent.add(upperBand);
 
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.42, 0.028), mat.accent);
-    back.position.set(0, 0.005, -0.385);
+    const lowerBand = new THREE.Mesh(new THREE.BoxGeometry(0.485, 0.030, 0.014), mat.reflective);
+    lowerBand.position.set(0, -0.115, 0.423);
+    parent.add(lowerBand);
+
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.545, 0.445, 0.042), mat.accent);
+    back.position.set(0, 0.005, -0.365);
     parent.add(back);
 
-    const backBand = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.032, 0.014), mat.reflective);
-    backBand.position.set(0, -0.075, -0.405);
+    const backBand = new THREE.Mesh(new THREE.BoxGeometry(0.455, 0.030, 0.014), mat.reflective);
+    backBand.position.set(0, -0.070, -0.393);
     parent.add(backBand);
-  }
 
-  private buildHarness(parent: THREE.Group, mat: HeroMaterialsV2): void {
     for (const side of [-1, 1] as const) {
-      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.44, 0.022), mat.accent);
-      strap.position.set(side * 0.15, 0.020, 0.397);
-      strap.rotation.z = side * 0.10;
-      parent.add(strap);
+      const sideStrap = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.200, 0.070), mat.dark);
+      sideStrap.position.set(side * 0.300, -0.015, 0.000);
+      parent.add(sideStrap);
     }
-    const chestBand = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.036, 0.022), mat.reflective);
-    chestBand.position.set(0, 0.035, 0.415);
-    parent.add(chestBand);
-    const waistBand = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.048, 0.024), mat.accent);
-    waistBand.position.set(0, -0.180, 0.405);
-    parent.add(waistBand);
   }
 
   private addIdAndRadio(parent: THREE.Group, mat: HeroMaterialsV2): void {
     const id = new THREE.Group();
-    const idBody = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.110, 0.016), mat.reflective);
-    const idMark = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.016, 0.006), mat.accent);
-    idMark.position.set(0, 0.028, 0.012);
+    id.name = 'EI_ENGINEER_ID_V4';
+    const idBody = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.082, 0.012), mat.reflective);
+    const idMark = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.012, 0.004), mat.accent);
+    idMark.position.set(0, 0.020, 0.009);
     id.add(idBody, idMark);
-    id.position.set(0.235, 0.105, 0.424);
+    id.position.set(0.225, 0.120, 0.428);
     parent.add(id);
 
-    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.115, 0.044), mat.dark);
-    radio.position.set(-0.255, 0.105, 0.410);
+    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.080, 0.030), mat.dark);
+    radio.position.set(-0.235, 0.125, 0.420);
     parent.add(radio);
 
-    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.072, 7), mat.dark);
-    antenna.position.set(-0.255, 0.195, 0.410);
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.050, 6), mat.dark);
+    antenna.position.set(-0.235, 0.188, 0.420);
     parent.add(antenna);
   }
 
