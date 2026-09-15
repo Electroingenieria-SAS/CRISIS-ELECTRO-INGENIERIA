@@ -15,6 +15,7 @@
     "prebuild": "npm run assets:kaykit",
     "build": "tsc --noEmit && vite build",
     "test": "tsx --test tests/v9/**/*.test.ts",
+    "test:e2e": "playwright test",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "three": "0.186.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/three": "0.186.0",
     "tsx": "4.23.13",
     "typescript": "5.9.2",
