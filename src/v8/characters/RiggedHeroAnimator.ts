@@ -32,8 +32,9 @@ export class RiggedHeroAnimator {
     if (clips.interact) this.actions.set('interact', this.onceAction(clips.interact));
     if (clips.pickup) this.actions.set('pickup', this.onceAction(clips.pickup));
     if (clips.useItem) {
-      this.actions.set('scan', this.onceAction(clips.useItem));
-      this.actions.set('drop', this.onceAction(clips.useItem));
+      const useItem = this.onceAction(clips.useItem);
+      this.actions.set('scan', useItem);
+      this.actions.set('drop', useItem);
     }
 
     this.scanner = root.getObjectByName('EI_HAND_SCANNER_RIGGED') ?? null;
@@ -58,17 +59,22 @@ export class RiggedHeroAnimator {
     const animation = this.actions.get(action);
     if (!animation) return;
 
+    // Do not restart a one-shot every frame or interrupt another one-shot.
+    // GameCore dispatches actions once per consumed key press.
+    if (this.actionPlaying) return;
+
     this.actionPlaying = true;
     this.activeAction = action;
     if (this.scanner) this.scanner.visible = action === 'scan';
 
     const base = this.actions.get(this.baseState);
+    animation.stop();
     animation.reset();
     animation.enabled = true;
     animation.setEffectiveWeight(1);
     animation.setEffectiveTimeScale(1);
-    if (base && base !== animation) animation.crossFadeFrom(base, 0.16, true);
     animation.play();
+    if (base && base !== animation) animation.crossFadeFrom(base, 0.18, true);
   }
 
   update(dt: number): void {
@@ -87,14 +93,19 @@ export class RiggedHeroAnimator {
     const previous = this.actions.get(this.baseState);
     const target = this.actions.get(next);
     if (!target) return;
-    target.reset().enabled = true;
+
+    target.enabled = true;
     target.setEffectiveWeight(1);
-    target.play();
-    if (previous && previous !== target) target.crossFadeFrom(previous, next === 'run' || this.baseState === 'run' ? 0.2 : 0.26, true);
+    if (!target.isRunning()) target.play();
+    if (previous && previous !== target) {
+      target.crossFadeFrom(previous, next === 'run' || this.baseState === 'run' ? 0.18 : 0.24, true);
+    }
     this.baseState = next;
   }
 
   private onFinished = (): void => {
+    if (!this.actionPlaying) return;
+
     this.actionPlaying = false;
     this.activeAction = null;
     if (this.scanner) this.scanner.visible = false;
@@ -102,12 +113,17 @@ export class RiggedHeroAnimator {
     const desired: BaseState = !this.moving ? 'idle' : this.sprinting && !this.carrying ? 'run' : 'walk';
     const target = this.actions.get(desired);
     if (!target) return;
-    const candidates = ['interact', 'pickup', 'scan', 'drop']
-      .map((key) => this.actions.get(key))
-      .filter((item): item is THREE.AnimationAction => Boolean(item));
-    target.reset().play();
-    for (const action of candidates) {
-      if (action.isRunning()) target.crossFadeFrom(action, 0.2, true);
+
+    target.enabled = true;
+    target.setEffectiveWeight(1);
+    if (!target.isRunning()) target.reset().play();
+
+    const seen = new Set<THREE.AnimationAction>();
+    for (const key of ['interact', 'pickup', 'scan', 'drop']) {
+      const action = this.actions.get(key);
+      if (!action || seen.has(action)) continue;
+      seen.add(action);
+      if (action.isRunning()) target.crossFadeFrom(action, 0.20, true);
     }
     this.baseState = desired;
   };
