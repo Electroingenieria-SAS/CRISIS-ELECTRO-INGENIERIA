@@ -10,7 +10,7 @@ import {
 } from './content';
 import { Input } from './Input';
 import { Player } from './Player';
-import type { GameState, PlayerProfile, ZoneId } from './types';
+import type { GameState, PlayerProfile, WorldContextTarget, ZoneId } from './types';
 import { UI } from './UI';
 import { World } from './World';
 
@@ -118,14 +118,21 @@ export class CrisisGameV8 {
     const locked = !this.started || this.ui.isModalOpen() || this.state.finished;
     const screenUp = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).normalize();
     const screenRight = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).normalize();
-    this.player.update(dt, this.input, this.world.colliders, screenUp, screenRight, locked);
-    this.world.update(dt);
+    this.player.update(
+      dt,
+      this.input,
+      (current, desired, radius) => this.world.resolvePlayerMovement(current, desired, radius),
+      screenUp,
+      screenRight,
+      locked
+    );
+    this.world.update(dt, this.player.position);
 
     if (this.started && !this.state.finished) {
       const zone = this.world.zoneFor(this.player.position);
       if (zone !== this.state.zone) {
         this.state.zone = zone;
-        if (!this.seenZones.has(zone)) {
+        if (!this.seenZones.has(zone) && this.zoneIntroEligible(zone)) {
           this.seenZones.add(zone);
           void this.introZone(zone);
         }
@@ -151,6 +158,12 @@ export class CrisisGameV8 {
       this.mapOpen = false;
       this.ui.closeModal();
     }
+
+    if (this.started && !this.state.finished && this.input.consume('F3')) {
+      const enabled = this.world.toggleDebug();
+      this.ui.toastMessage('DEBUG DEL MUNDO', enabled ? 'Colliders, radios de interacción y zonas de combate visibles.' : 'Debug oculto.', enabled ? 'success' : 'normal');
+    }
+
     if (this.started && !this.state.finished && this.input.consume('KeyQ')) {
       if (this.mapOpen) {
         this.mapOpen = false;
@@ -160,6 +173,15 @@ export class CrisisGameV8 {
         this.ui.showMap(this.state.zone);
       }
     }
+
+    if (this.started && !this.state.finished && !this.ui.isModalOpen() && this.input.consume('KeyI')) {
+      void this.showInventory();
+    }
+
+    if (this.started && !this.state.finished && !this.ui.isModalOpen() && this.input.consume('Space')) {
+      this.attackOrThrow();
+    }
+
     if (this.started && !this.state.finished && !this.ui.isModalOpen() && this.input.consume('KeyF')) this.scan();
   }
 
@@ -176,6 +198,16 @@ export class CrisisGameV8 {
             this.resolvePlacement(dropped.id, socket.id);
           }
         }
+      } else if (carried.startsWith('env-')) {
+        this.ui.setPrompt('Soltar · ESPACIO para lanzar');
+        if (this.input.consume('KeyE')) {
+          const target = this.player.position.clone().addScaledVector(this.player.forward(), 1.15).setY(0.15);
+          const dropped = this.player.drop(this.world.group, target);
+          if (dropped) {
+            this.audio.drop();
+            this.ui.toastMessage('OBJETO COLOCADO', 'La caja vuelve a quedar disponible para levantar.');
+          }
+        }
       } else {
         this.ui.setPrompt('Transporta el elemento hasta una estación válida');
       }
@@ -184,11 +216,18 @@ export class CrisisGameV8 {
 
     const carryable = this.world.nearestCarryable(this.player.position, (id) => this.carryableEnabled(id));
     if (carryable) {
-      this.ui.setPrompt(`Tomar · ${carryable.label}`);
+      this.ui.setPrompt(`Levantar · ${carryable.label}`);
       if (this.input.consume('KeyE') && this.player.pickup(carryable.object, carryable.id)) {
         this.audio.pickup();
         this.ui.toastMessage('OBJETO EN MANOS', carryable.label);
       }
+      return;
+    }
+
+    const context = this.world.nearestContext(this.player.position);
+    if (context) {
+      this.ui.setPrompt(`${context.prompt} · ${context.label}`, context.key);
+      if (context.key === 'E' && this.input.consume('KeyE')) this.resolveContextInteraction(context);
       return;
     }
 
@@ -209,6 +248,53 @@ export class CrisisGameV8 {
       return;
     }
     this.ui.setPrompt(null);
+  }
+
+  private resolveContextInteraction(context: WorldContextTarget): void {
+    if (context.kind === 'pickup') {
+      this.player.playAction('pickup');
+      this.audio.pickup();
+    } else {
+      this.player.playAction('interact');
+      this.audio.interact();
+    }
+
+    const result = this.world.interactContext(context.id);
+    if (!result.handled) return;
+    if (result.tone === 'success') this.audio.success();
+    this.ui.toastMessage(result.title ?? context.label, result.message ?? '', result.tone ?? 'normal');
+  }
+
+  private attackOrThrow(): void {
+    const carried = this.player.getCarriedId();
+    if (carried?.startsWith('env-')) {
+      const thrown = this.player.throwCarried(this.world.group, this.player.forward());
+      if (thrown) {
+        this.audio.drop();
+        this.ui.toastMessage('LANZAMIENTO', thrown.id === 'env-carry-crate' ? 'Caja de práctica lanzada.' : 'Objeto lanzado.');
+      }
+      return;
+    }
+
+    if (carried) return;
+    this.player.playAction('interact');
+    const hit = this.world.attack(this.player.position, this.player.forward());
+    if (!hit.hit) return;
+    this.audio.interact();
+    if (hit.destroyedIds.length) {
+      this.audio.success();
+      this.ui.toastMessage('OBJETO DESTRUIDO', 'El target de entrenamiento quedó fuera de servicio.', 'success');
+    } else {
+      this.ui.toastMessage('IMPACTO', 'El objeto recibió daño.');
+    }
+  }
+
+  private async showInventory(): Promise<void> {
+    const items = this.world.inventoryItems();
+    const rows: Array<[string, string]> = items.length
+      ? items.map((item) => [item.label, `x${item.quantity ?? 1}${item.description ? ` · ${item.description}` : ''}`])
+      : [['Inventario', 'Vacío']];
+    await this.ui.showEvidence('INVENTARIO DE CAMPO', 'Objetos recogidos durante la investigación.', rows);
   }
 
   private scan(): void {
@@ -427,6 +513,7 @@ export class CrisisGameV8 {
   }
 
   private carryableEnabled(id: string): boolean {
+    if (id.startsWith('env-')) return true;
     if (id.startsWith('pallet-')) return this.state.chapter === 1 && this.state.scans.size === 3 && !this.state.flags.has('warehouse-seal');
     if (id === 'master-block') return this.state.chapter === 3;
     if (id.startsWith('pkg-')) return this.state.chapter === 5 && !this.state.dispatchPlaced.has(id);
@@ -449,21 +536,22 @@ export class CrisisGameV8 {
     item.object.userData.carried = false;
   }
 
+  private zoneIntroEligible(zone: ZoneId): boolean {
+    return (zone === 'warehouse' && this.state.chapter === 1)
+      || (zone === 'production' && this.state.chapter === 2)
+      || (zone === 'quality' && this.state.chapter === 3)
+      || (zone === 'maintenance' && this.state.chapter === 4)
+      || (zone === 'dispatch' && this.state.chapter === 5)
+      || (zone === 'capa' && this.state.chapter === 6);
+  }
+
   private async introZone(zone: ZoneId): Promise<void> {
     if (zone === 'warehouse' && this.state.chapter === 1) {
-      await this.ui.chapterIntro(
-        'CAPÍTULO I · RECEPCIÓN Y ALMACÉN',
-        'La evidencia entra antes que la producción',
-        'Un COA vigente no convierte automáticamente un material en correcto. Contrasta pedido, revisión e identidad física antes de decidir qué puede continuar.'
-      );
+      await this.ui.chapterIntro('CAPÍTULO I · RECEPCIÓN Y ALMACÉN', 'La evidencia entra antes que la producción', 'Un COA vigente no convierte automáticamente un material en correcto. Contrasta pedido, revisión e identidad física antes de decidir qué puede continuar.');
       return;
     }
     if (zone === 'production' && this.state.chapter === 2) {
-      await this.ui.chapterIntro(
-        'CAPÍTULO II · PRODUCCIÓN',
-        'Una máquina segura también es una decisión de calidad',
-        'La celda CT-48 sólo puede liberarse cuando OT, material, programa y condiciones de máquina cuentan la misma historia. Observa el tablero: cada mecanismo altera más de una condición.'
-      );
+      await this.ui.chapterIntro('CAPÍTULO II · PRODUCCIÓN', 'Una máquina segura también es una decisión de calidad', 'La celda CT-48 sólo puede liberarse cuando OT, material, programa y condiciones de máquina cuentan la misma historia. Observa el tablero: cada mecanismo altera más de una condición.');
       return;
     }
     if (zone === 'quality' && this.state.chapter === 3) {
@@ -524,11 +612,7 @@ export class CrisisGameV8 {
     const target = new THREE.Vector3(this.player.position.x, 1.25, this.player.position.z);
     this.cameraTarget.lerp(target, 1 - Math.exp(-dt * 8));
     const horizontal = Math.cos(this.pitch) * this.distance;
-    const desired = new THREE.Vector3(
-      this.cameraTarget.x + Math.sin(this.yaw) * horizontal,
-      this.cameraTarget.y + Math.sin(this.pitch) * this.distance,
-      this.cameraTarget.z + Math.cos(this.yaw) * horizontal
-    );
+    const desired = new THREE.Vector3(this.cameraTarget.x + Math.sin(this.yaw) * horizontal, this.cameraTarget.y + Math.sin(this.pitch) * this.distance, this.cameraTarget.z + Math.cos(this.yaw) * horizontal);
     this.camera.position.lerp(desired, 1 - Math.exp(-dt * 7));
     this.camera.lookAt(this.cameraTarget);
   }
@@ -537,11 +621,7 @@ export class CrisisGameV8 {
     const target = new THREE.Vector3(this.player.position.x, 1.25, this.player.position.z);
     this.cameraTarget.copy(target);
     const horizontal = Math.cos(this.pitch) * this.distance;
-    const desired = new THREE.Vector3(
-      target.x + Math.sin(this.yaw) * horizontal,
-      target.y + Math.sin(this.pitch) * this.distance,
-      target.z + Math.cos(this.yaw) * horizontal
-    );
+    const desired = new THREE.Vector3(target.x + Math.sin(this.yaw) * horizontal, target.y + Math.sin(this.pitch) * this.distance, target.z + Math.cos(this.yaw) * horizontal);
     if (immediate) this.camera.position.copy(desired);
     else this.camera.position.lerp(desired, 1 - Math.exp(-dt * 7));
     this.camera.lookAt(target);
