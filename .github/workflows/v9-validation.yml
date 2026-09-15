@@ -1,0 +1,63 @@
+name: V9 Professional Polish Validation
+
+on:
+  push:
+    branches:
+      - feature/v9-professional-polish
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v9-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript and production build
+        run: npm run build
+
+      - name: Bundle budget
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const root = 'dist/assets';
+          const limit = 1_400_000;
+          const files = fs.existsSync(root) ? fs.readdirSync(root) : [];
+          const js = files.filter((name) => name.endsWith('.js'));
+          let failed = false;
+          for (const name of js) {
+            const size = fs.statSync(path.join(root, name)).size;
+            console.log(`${name}: ${(size / 1024).toFixed(1)} KiB`);
+            if (size > limit) {
+              console.error(`Bundle budget exceeded: ${name} > ${(limit / 1024).toFixed(0)} KiB`);
+              failed = true;
+            }
+          }
+          if (failed) process.exit(1);
+          NODE
+
+      - name: Upload playable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: operacion-aurora-v9-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
