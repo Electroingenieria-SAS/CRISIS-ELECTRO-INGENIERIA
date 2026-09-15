@@ -24,11 +24,10 @@ export class Player {
 
   constructor(private profile: PlayerProfile) {
     this.group.name = 'V8_PLAYER';
-    const accent = new THREE.Color(this.profile.accent).getHex();
-    this.buildFallbackAvatar(accent);
+    this.buildFallbackAvatar();
     this.carrySocket.position.set(0, 1.42, 0.78);
     this.group.add(this.carrySocket);
-    void this.promoteToRiggedHero(accent);
+    void this.promoteToRiggedHero();
   }
 
   update(dt: number, input: Input, colliders: Collider[], screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
@@ -102,13 +101,14 @@ export class Player {
     return { id, object };
   }
 
-  private buildFallbackAvatar(accent: number): void {
+  private buildFallbackAvatar(): void {
     const role = this.profile.role === 'quality' ? 'quality' : this.profile.role === 'process' ? 'production' : 'maintenance';
     const hero = new HeroCharacter();
     const model = hero.create({
       name: this.profile.name || 'Investigador',
       role,
-      accent
+      accent: new THREE.Color(this.profile.appearance.vest).getHex(),
+      appearance: this.profile.appearance
     });
 
     this.visual = model.visual;
@@ -126,11 +126,9 @@ export class Player {
     this.group.add(shadow);
   }
 
-  private async promoteToRiggedHero(accent: number): Promise<void> {
+  private async promoteToRiggedHero(): Promise<void> {
     try {
-      const rigged = await new RiggedHeroCharacter().load(accent);
-      // Avoid replacing the avatar in the middle of a carry operation. The
-      // loader is normally complete before the first playable interaction.
+      const rigged = await new RiggedHeroCharacter().load(this.profile.appearance);
       if (this.carriedId) return;
 
       const oldVisual = this.visual;
@@ -140,8 +138,9 @@ export class Player {
       this.animator = rigged.animator;
       this.rigged = true;
       this.group.userData.riggedHero = true;
+      this.group.userData.heroAppearance = this.profile.appearance;
     } catch (error) {
-      console.warn('[V8] Rigged hero unavailable; retaining premium procedural fallback.', error);
+      console.warn('[V8] Rigged hero unavailable; retaining customized procedural fallback.', error);
       this.rigged = false;
     }
   }
