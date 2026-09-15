@@ -31,8 +31,8 @@ interface ActiveOneShot {
 /**
  * V9 KayKit animation state machine.
  * Locomotion is controller-driven; gameplay synchronization uses normalized
- * animation markers. Finished one-shots stay alive for the full crossfade
- * interval instead of being stopped on the next microtask.
+ * animation markers. Pickup/put-down deliberately use longer blends and a
+ * slightly slower default tempo so the load reads as weight, not UI feedback.
  */
 export class RiggedHeroAnimator {
   private readonly mixer: THREE.AnimationMixer;
@@ -104,11 +104,12 @@ export class RiggedHeroAnimator {
 
     this.generation += 1;
     const generation = this.generation;
-    this.active = { key: state, action: animation, request, markerFired: false, generation };
+    const resolvedRequest = this.resolveRequest(state, request);
+    this.active = { key: state, action: animation, request: resolvedRequest, markerFired: false, generation };
     if (this.scanner) this.scanner.visible = state === 'scan';
 
     this.retiring.delete(animation);
-    const reverse = request.reverse === true;
+    const reverse = resolvedRequest.reverse === true;
     const clipDuration = Math.max(0.001, animation.getClip().duration);
     animation.stop();
     animation.reset();
@@ -120,16 +121,21 @@ export class RiggedHeroAnimator {
     animation.setLoop(THREE.LoopOnce, 1);
     animation.time = reverse ? clipDuration : 0;
     animation.setEffectiveWeight(1);
-    animation.setEffectiveTimeScale((reverse ? -1 : 1) * Math.max(0.05, request.timeScale ?? 1));
+    animation.setEffectiveTimeScale((reverse ? -1 : 1) * Math.max(0.05, resolvedRequest.timeScale ?? 1));
     animation.play();
 
     const base = this.actions.get(this.baseState);
     if (base && base !== animation) {
       base.stopFading();
-      animation.crossFadeFrom(base, request.fadeIn ?? (state === 'attack' ? 0.08 : 0.14), false);
+      animation.crossFadeFrom(base, resolvedRequest.fadeIn ?? 0.14, false);
     }
 
-    GameLogger.animation('one-shot start', state, animation.getClip().name, { reverse, generation });
+    GameLogger.animation('one-shot start', state, animation.getClip().name, {
+      reverse,
+      generation,
+      timeScale: resolvedRequest.timeScale,
+      fadeIn: resolvedRequest.fadeIn
+    });
     return true;
   }
 
@@ -143,9 +149,9 @@ export class RiggedHeroAnimator {
 
   update(dt: number): void {
     const walk = this.actions.get('walk');
-    if (walk) walk.setEffectiveTimeScale(this.carrying ? 0.78 : 1);
+    if (walk) walk.setEffectiveTimeScale(this.carrying ? 0.76 : 1);
     const carryWalk = this.actions.get('carryWalk');
-    if (carryWalk) carryWalk.setEffectiveTimeScale(0.82);
+    if (carryWalk) carryWalk.setEffectiveTimeScale(0.78);
 
     this.mixer.update(dt);
     this.fireMarkerIfNeeded();
@@ -191,7 +197,9 @@ export class RiggedHeroAnimator {
     this.prepareBaseAction(target);
     if (previous && previous !== target) {
       previous.stopFading();
-      target.crossFadeFrom(previous, next === 'run' || this.baseState === 'run' ? 0.14 : 0.20, false);
+      const involvesCarry = next === 'carryIdle' || next === 'carryWalk' || this.baseState === 'carryIdle' || this.baseState === 'carryWalk';
+      const fade = involvesCarry ? 0.25 : next === 'run' || this.baseState === 'run' ? 0.14 : 0.20;
+      target.crossFadeFrom(previous, fade, false);
     }
     GameLogger.animation('locomotion', this.baseState, '→', next);
     this.baseState = next;
@@ -215,6 +223,16 @@ export class RiggedHeroAnimator {
     action.setEffectiveWeight(1);
     action.setEffectiveTimeScale(1);
     if (!action.isRunning()) action.reset().play();
+  }
+
+  private resolveRequest(state: Exclude<HeroAnimationState, BaseState>, request: HeroActionRequest): HeroActionRequest {
+    const defaults: Partial<Record<Exclude<HeroAnimationState, BaseState>, HeroActionRequest>> = {
+      pickup: { timeScale: 0.88, fadeIn: 0.18, fadeOut: 0.20 },
+      putDown: { timeScale: 0.90, fadeIn: 0.16, fadeOut: 0.18 },
+      throw: { timeScale: 0.94, fadeIn: 0.10, fadeOut: 0.14 },
+      attack: { timeScale: 1, fadeIn: 0.08, fadeOut: 0.10 }
+    };
+    return { ...(defaults[state] ?? {}), ...request };
   }
 
   private fireMarkerIfNeeded(): void {
@@ -257,7 +275,7 @@ export class RiggedHeroAnimator {
 
     const finished = active.action;
     const completed = active.request.onComplete;
-    const fadeOut = active.request.fadeOut ?? (active.key === 'attack' ? 0.09 : 0.13);
+    const fadeOut = active.request.fadeOut ?? 0.13;
     this.active = null;
     if (this.scanner) this.scanner.visible = false;
 
@@ -267,7 +285,7 @@ export class RiggedHeroAnimator {
       this.prepareBaseAction(target);
       finished.stopFading();
       target.crossFadeFrom(finished, fadeOut, false);
-      this.retiring.set(finished, Math.max(0.05, fadeOut + 0.02));
+      this.retiring.set(finished, Math.max(0.05, fadeOut + 0.03));
     } else {
       finished.stop();
       finished.enabled = false;
