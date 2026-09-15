@@ -23,11 +23,12 @@ interface Agent {
 }
 
 /**
- * NPC life system. Procedural actors are immediate fallbacks; each registered
- * staff member is then promoted to a cached skeletal actor with real clips.
+ * NPC life system. Every actor is normalized to the same rendered height as the
+ * protagonist after its complete visual (hair, helmet, PPE) has been assembled.
  */
 export class NPCLifeController {
-  private static readonly CANONICAL_CHARACTER_SCALE = 0.94;
+  private static readonly CANONICAL_CHARACTER_HEIGHT = 2.35;
+
   private readonly factory = new CharacterFactory();
   private readonly riggedFactory = new RiggedStaffCharacter();
   private readonly agents: Agent[] = [];
@@ -37,7 +38,8 @@ export class NPCLifeController {
 
   register(id: string, anchor: THREE.Object3D, model: CharacterModel, role: CharacterRole, phase = 0): void {
     model.root.userData.npcId = id;
-    model.root.scale.setScalar(NPCLifeController.CANONICAL_CHARACTER_SCALE);
+    this.normalizeVisibleHeight(model.root, model.root);
+
     const agent: Agent = {
       id,
       anchor,
@@ -75,15 +77,8 @@ export class NPCLifeController {
     this.resolvePlayerPosition(playerPosition);
 
     for (const agent of this.agents) {
-      if (agent.rigged) {
-        this.updateRigged(agent, dt);
-      } else {
-        this.factory.animateIdle(agent.model, this.clock, agent.phase);
-        this.updateBlink(agent, dt);
-        this.updateAttentionProcedural(agent, dt);
-        this.updateGestureProcedural(agent, dt);
-        this.updateWeightShift(agent);
-      }
+      if (agent.rigged) this.updateRigged(agent, dt);
+      else this.updateProcedural(agent, dt);
     }
   }
 
@@ -92,9 +87,8 @@ export class NPCLifeController {
       const rigged = await this.riggedFactory.load(this.styleFor(agent));
       if (!agent.anchor.parent) return;
 
-      // Canonical scale: protagonist and every rigged NPC share the same world size.
-      rigged.visual.scale.setScalar(NPCLifeController.CANONICAL_CHARACTER_SCALE);
-      rigged.root.userData.canonicalScale = NPCLifeController.CANONICAL_CHARACTER_SCALE;
+      this.normalizeVisibleHeight(rigged.root, rigged.visual);
+      rigged.root.userData.canonicalHeight = NPCLifeController.CANONICAL_CHARACTER_HEIGHT;
 
       agent.anchor.remove(agent.model.root);
       agent.anchor.add(rigged.root);
@@ -105,6 +99,33 @@ export class NPCLifeController {
     } catch (error) {
       console.warn(`[V8] Rigged NPC unavailable for ${agent.id}; using procedural fallback.`, error);
     }
+  }
+
+  /** Measure only visible meshes, then scale the actor to the canonical height. */
+  private normalizeVisibleHeight(container: THREE.Object3D, scalable: THREE.Object3D): void {
+    container.updateMatrixWorld(true);
+    const bounds = new THREE.Box3();
+    const meshBounds = new THREE.Box3();
+    let hasBounds = false;
+
+    container.traverse((node) => {
+      if (!(node instanceof THREE.Mesh) || !node.visible) return;
+      if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+      const local = node.geometry.boundingBox;
+      if (!local) return;
+      meshBounds.copy(local).applyMatrix4(node.matrixWorld);
+      if (!hasBounds) {
+        bounds.copy(meshBounds);
+        hasBounds = true;
+      } else bounds.union(meshBounds);
+    });
+
+    if (!hasBounds) return;
+    const height = bounds.max.y - bounds.min.y;
+    if (!Number.isFinite(height) || height <= 0.001) return;
+
+    scalable.scale.multiplyScalar(NPCLifeController.CANONICAL_CHARACTER_HEIGHT / height);
+    container.updateMatrixWorld(true);
   }
 
   private updateRigged(agent: Agent, dt: number): void {
@@ -142,7 +163,7 @@ export class NPCLifeController {
     if (!rigged) return;
     const seed = this.seed(agent.id, this.clock + agent.phase);
     const action = (dialogue || seed < 0.58 ? rigged.interact : rigged.useItem) ?? rigged.interact ?? rigged.useItem;
-    if (!action) return;
+    if (!action || action.isRunning()) return;
 
     action.reset();
     action.enabled = true;
@@ -158,6 +179,14 @@ export class NPCLifeController {
       rigged.idle.reset().play();
       rigged.idle.crossFadeFrom(action, 0.22, true);
     }, duration * 1000);
+  }
+
+  private updateProcedural(agent: Agent, dt: number): void {
+    this.factory.animateIdle(agent.model, this.clock, agent.phase);
+    this.updateBlink(agent, dt);
+    this.updateAttentionProcedural(agent, dt);
+    this.updateGestureProcedural(agent, dt);
+    this.updateWeightShift(agent);
   }
 
   private resolvePlayerPosition(candidate: THREE.Vector3): void {
