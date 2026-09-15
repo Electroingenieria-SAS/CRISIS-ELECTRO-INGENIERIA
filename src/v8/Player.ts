@@ -36,10 +36,23 @@ type FallbackTimeline = {
   onComplete?: () => void;
 };
 
+type ObjectPoseTransition = {
+  elapsed: number;
+  duration: number;
+  fromPosition: THREE.Vector3;
+  toPosition: THREE.Vector3;
+  fromQuaternion: THREE.Quaternion;
+  toQuaternion: THREE.Quaternion;
+};
+
 /**
- * V9 character controller. Position remains collision-controller authoritative;
- * authored animation supplies anticipation/follow-through and normalized markers
- * synchronize gameplay events such as attaching/releasing a carried object.
+ * V9 professional character controller.
+ *
+ * Position remains controller-authoritative. Authored KayKit animation supplies
+ * anticipation/follow-through, while normalized markers synchronize physical
+ * events. A carried object never teleports directly from floor to chest: at the
+ * pickup contact marker it is re-parented preserving its world pose, then eased
+ * into the carry anchor during the lift portion of the animation.
  */
 export class Player {
   readonly group = new THREE.Group();
@@ -60,6 +73,7 @@ export class Player {
   private readonly velocity = new THREE.Vector3();
   private readonly desiredVelocity = new THREE.Vector3();
   private fallbackTimeline: FallbackTimeline | null = null;
+  private objectPoseTransition: ObjectPoseTransition | null = null;
 
   constructor(private profile: PlayerProfile) {
     this.group.name = 'V9_PLAYER';
@@ -70,6 +84,7 @@ export class Player {
     this.buildFallbackHero();
     this.visual.add(this.carryAnchor);
     this.applyCarryAnchorConfig();
+    this.setCarryState('NONE');
     void this.promoteToEngineerHero();
   }
 
@@ -77,6 +92,7 @@ export class Player {
     this.inputRef = input;
     this.updateFallbackTimeline(dt);
     this.updateAlignment(dt);
+    this.updateObjectPoseTransition(dt);
 
     const transitionLocked = this.isCarryTransition() || Boolean(this.animator.isBusy?.() && this.carryState === 'NONE');
     const movementLocked = locked || transitionLocked;
@@ -126,15 +142,12 @@ export class Player {
       }
     }
 
-    if (carrying) this.carryState = moving ? 'CARRY_WALK' : 'CARRY_IDLE';
+    if (carrying) this.setCarryState(moving ? 'CARRY_WALK' : 'CARRY_IDLE');
     this.animator.setLocomotion(moving, sprint, carrying);
     this.animator.update(dt);
   }
 
   playAction(action: Exclude<CharacterAction, null>): void {
-    // Compatibility bridge: existing GameCore still requests `interact` on
-    // Space, but V9 converts that request into a real attack whose damage marker
-    // is emitted later, at the authored contact point.
     if (action === 'interact' && this.inputRef?.isDown('Space')) {
       this.playAttack(() => emitCombatCue('attack-impact'));
       return;
@@ -195,21 +208,32 @@ export class Player {
     object.userData.carried = false;
 
     this.pendingTarget = object.getWorldPosition(new THREE.Vector3()).setY(this.position.y);
-    this.carryState = 'ALIGNING';
+    this.setCarryState('ALIGNING');
     this.alignElapsed = 0;
     this.velocity.set(0, 0, 0);
     GameLogger.interaction('pickup requested', id, this.carryConfig.weightClass);
     return true;
   }
 
-  /** Starts a marker-synchronized put-down and returns the logical item immediately for mission bookkeeping. */
+  /** Starts a visible put-down and returns the logical item for mission bookkeeping. */
   drop(parent: THREE.Object3D, target: THREE.Vector3): { id: string; object: THREE.Object3D } | null {
     if (!this.carriedId || !this.carriedObject || !this.isCarryingPose()) return null;
     const id = this.carriedId;
     const object = this.carriedObject;
     const config = this.carryConfig;
-    this.carryState = 'PUTDOWN';
+    this.setCarryState('PUTDOWN');
     this.velocity.set(0, 0, 0);
+
+    const localTarget = target.clone();
+    this.carryAnchor.worldToLocal(localTarget);
+    this.objectPoseTransition = {
+      elapsed: 0,
+      duration: Math.max(0.18, (config.putDownDuration ?? 0.78) * (config.releaseNormalizedTime ?? 0.62)),
+      fromPosition: object.position.clone(),
+      toPosition: localTarget,
+      fromQuaternion: object.quaternion.clone(),
+      toQuaternion: new THREE.Quaternion()
+    };
 
     const release = () => this.releaseCarried(parent, target, false);
     const complete = () => {
@@ -233,16 +257,14 @@ export class Player {
     const object = this.carriedObject;
     const config = this.carryConfig;
     const weight = WEIGHT_PROFILES[config.weightClass];
-    this.carryState = 'THROW_START';
+    this.setCarryState('THROW_START');
     this.velocity.set(0, 0, 0);
 
     const release = () => {
       if (!this.carriedObject) return;
-      this.carryState = 'THROW_RELEASE';
-      const worldPosition = this.carriedObject.getWorldPosition(new THREE.Vector3());
-      parent.attach(this.carriedObject);
-      this.carriedObject.position.copy(worldPosition);
+      this.setCarryState('THROW_RELEASE');
       const bridge = this.physicsBridge(this.carriedObject);
+      parent.attach(this.carriedObject);
       const forward = direction.clone().setY(0).normalize();
       const launch = forward.multiplyScalar((config.throwSpeed ?? 6.8) * weight.throwMultiplier);
       launch.y = config.throwLift ?? 3.2;
@@ -251,7 +273,7 @@ export class Player {
       GameLogger.physics('throw release', id, launch.toArray());
     };
     const complete = () => {
-      this.carryState = 'THROW_RECOVERY';
+      this.setCarryState('THROW_RECOVERY');
       this.finishCarryCycle();
     };
     const played = this.playHeroState('throw', { marker: 0.48, onMarker: release, onComplete: complete, fadeIn: 0.08, fadeOut: 0.12 }, 'drop');
@@ -262,44 +284,65 @@ export class Player {
   dispose(): void {
     this.animator.dispose?.();
     this.fallbackTimeline = null;
+    this.objectPoseTransition = null;
   }
 
   private startPickupAnimation(): void {
     if (!this.carriedId || !this.carriedObject) return this.finishCarryCycle();
-    this.carryState = 'PICKUP_START';
+    this.setCarryState('PICKUP_START');
     const config = this.carryConfig;
-    const attach = () => {
-      if (!this.carriedObject) return;
-      this.carryState = 'PICKUP_LIFT';
-      this.physicsBridge(this.carriedObject)?.setCarried();
-      this.carryAnchor.attach(this.carriedObject);
-      const [x, y, z] = config.positionOffset;
-      const [rx, ry, rz] = config.rotationOffset ?? [0, 0, 0];
-      this.carriedObject.position.set(x, y - this.carryAnchor.position.y, z - this.carryAnchor.position.z);
-      this.carriedObject.rotation.set(rx, ry, rz);
-      const originalScale = this.carriedObject.userData.v9OriginalScale as THREE.Vector3 | undefined;
-      if (originalScale) this.carriedObject.scale.copy(originalScale);
-      this.carriedObject.userData.carried = true;
-      GameLogger.interaction('carry attach marker', this.carriedId);
-    };
-    const complete = () => {
-      if (this.carriedId) this.carryState = 'CARRY_IDLE';
-    };
-
     const duration = config.pickupDuration ?? 0.90;
     const marker = config.attachNormalizedTime ?? 0.48;
-    const played = this.playHeroState('pickup', { marker, onMarker: attach, onComplete: complete }, 'pickup');
+
+    const attach = () => {
+      if (!this.carriedObject) return;
+      const object = this.carriedObject;
+      this.physicsBridge(object)?.setCarried();
+
+      // Object3D.attach preserves the exact world pose. The box therefore stays
+      // under the hands at the contact frame instead of teleporting to the chest.
+      this.carryAnchor.attach(object);
+      const originalScale = object.userData.v9OriginalScale as THREE.Vector3 | undefined;
+      if (originalScale) object.scale.copy(originalScale);
+      object.userData.carried = true;
+
+      this.objectPoseTransition = {
+        elapsed: 0,
+        duration: Math.max(0.16, duration * (1 - marker)),
+        fromPosition: object.position.clone(),
+        toPosition: new THREE.Vector3(0, 0, 0),
+        fromQuaternion: object.quaternion.clone(),
+        toQuaternion: new THREE.Quaternion()
+      };
+      this.setCarryState('PICKUP_LIFT');
+      GameLogger.interaction('carry contact marker', this.carriedId, object.position.toArray());
+    };
+
+    const complete = () => {
+      if (!this.carriedObject || !this.carriedId) return;
+      this.carriedObject.position.set(0, 0, 0);
+      this.carriedObject.quaternion.identity();
+      this.objectPoseTransition = null;
+      this.setCarryState('CARRY_IDLE');
+      GameLogger.interaction('carry lift complete', this.carriedId);
+    };
+
+    const played = this.playHeroState('pickup', { marker, onMarker: attach, onComplete: complete, fadeIn: 0.10, fadeOut: 0.12 }, 'pickup');
     if (!played) this.startFallbackTimeline(duration, marker, attach, complete);
   }
 
   private releaseCarried(parent: THREE.Object3D, target: THREE.Vector3, launched: boolean): void {
     if (!this.carriedObject || !this.carriedId) return;
     const object = this.carriedObject;
-    const worldQuaternion = object.getWorldQuaternion(new THREE.Quaternion());
     parent.attach(object);
-    object.position.copy(target);
-    object.quaternion.copy(worldQuaternion);
+
+    // Snap only the final few centimetres to the configured socket/ground point;
+    // the visible lowering has already happened before the release marker.
+    const localTarget = target.clone();
+    parent.worldToLocal(localTarget);
+    object.position.copy(localTarget);
     object.userData.carried = false;
+    this.objectPoseTransition = null;
     if (!launched) this.physicsBridge(object)?.release(target.clone());
     GameLogger.interaction('carry release marker', this.carriedId, target.toArray());
   }
@@ -307,10 +350,11 @@ export class Player {
   private finishCarryCycle(): void {
     this.carriedId = null;
     this.carriedObject = null;
-    this.carryState = 'NONE';
+    this.objectPoseTransition = null;
     this.pendingTarget = null;
     this.carryConfig = { ...DEFAULT_CARRY_CONFIG };
     this.applyCarryAnchorConfig();
+    this.setCarryState('NONE');
   }
 
   private updateAlignment(dt: number): void {
@@ -322,7 +366,19 @@ export class Player {
       const targetYaw = Math.atan2(dx, dz);
       this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 22));
     }
-    if (this.alignElapsed >= 0.15) this.startPickupAnimation();
+    if (this.alignElapsed >= 0.18) this.startPickupAnimation();
+  }
+
+  private updateObjectPoseTransition(dt: number): void {
+    const transition = this.objectPoseTransition;
+    const object = this.carriedObject;
+    if (!transition || !object || object.parent !== this.carryAnchor) return;
+    transition.elapsed += dt;
+    const raw = THREE.MathUtils.clamp(transition.elapsed / Math.max(0.001, transition.duration), 0, 1);
+    const t = raw * raw * (3 - 2 * raw);
+    object.position.lerpVectors(transition.fromPosition, transition.toPosition, t);
+    object.quaternion.copy(transition.fromQuaternion).slerp(transition.toQuaternion, t);
+    if (raw >= 1) this.objectPoseTransition = null;
   }
 
   private updateFallbackTimeline(dt: number): void {
@@ -351,6 +407,13 @@ export class Player {
     return false;
   }
 
+  private setCarryState(state: CarryState): void {
+    this.carryState = state;
+    this.carryAnchor.userData.state = state;
+    this.carryAnchor.userData.weightClass = this.carriedId ? this.carryConfig.weightClass : null;
+    if (this.carriedObject) this.carriedObject.userData.carryState = state;
+  }
+
   private isCarryTransition(): boolean {
     return ['ALIGNING', 'PICKUP_START', 'PICKUP_LIFT', 'PUTDOWN', 'THROW_START', 'THROW_RELEASE', 'THROW_RECOVERY'].includes(this.carryState);
   }
@@ -368,24 +431,37 @@ export class Player {
 
   private resolveCarryConfig(object: THREE.Object3D): CarryConfig {
     const partial = (object.userData.v9CarryConfig ?? {}) as Partial<CarryConfig>;
+    const box = new THREE.Box3().setFromObject(object);
+    const size = box.getSize(new THREE.Vector3());
+    const halfX = THREE.MathUtils.clamp(size.x * 0.5, 0.15, 0.65);
+    const halfZ = THREE.MathUtils.clamp(size.z * 0.5, 0.15, 0.58);
+    const inferredPosition: THREE.Vector3Tuple = [
+      0,
+      THREE.MathUtils.clamp(1.02 + size.y * 0.16, 1.08, 1.22),
+      THREE.MathUtils.clamp(0.43 + halfZ * 0.34, 0.49, 0.62)
+    ];
+
     return {
       ...DEFAULT_CARRY_CONFIG,
       ...partial,
-      leftHandGrip: partial.leftHandGrip ?? DEFAULT_CARRY_CONFIG.leftHandGrip,
-      rightHandGrip: partial.rightHandGrip ?? DEFAULT_CARRY_CONFIG.rightHandGrip
+      positionOffset: partial.positionOffset ?? inferredPosition,
+      leftHandGrip: partial.leftHandGrip ?? { position: [-halfX * 0.84, 0.02, 0.02] },
+      rightHandGrip: partial.rightHandGrip ?? { position: [halfX * 0.84, 0.02, 0.02] }
     };
   }
 
   private applyCarryAnchorConfig(): void {
     const [x, y, z] = this.carryConfig.positionOffset;
-    this.carryAnchor.position.set(0, y, z);
-    const left = this.carryConfig.leftHandGrip?.position ?? [-0.30, 0.12, 0.04];
-    const right = this.carryConfig.rightHandGrip?.position ?? [0.30, 0.12, 0.04];
+    const [rx, ry, rz] = this.carryConfig.rotationOffset ?? [0, 0, 0];
+    this.carryAnchor.position.set(x, y, z);
+    this.carryAnchor.rotation.set(rx, ry, rz);
+
+    const left = this.carryConfig.leftHandGrip?.position ?? [-0.30, 0.02, 0.02];
+    const right = this.carryConfig.rightHandGrip?.position ?? [0.30, 0.02, 0.02];
     this.leftGripDebug.position.set(left[0], left[1], left[2]);
     this.rightGripDebug.position.set(right[0], right[1], right[2]);
-    this.carryAnchor.userData.state = this.carryState;
+    this.carryAnchor.userData.restPosition = [x, y, z];
     this.carryAnchor.userData.weightClass = this.carryConfig.weightClass;
-    this.carryAnchor.userData.offsetX = x;
   }
 
   private physicsBridge(object: THREE.Object3D): CarryPhysicsBridge | null {
@@ -435,9 +511,11 @@ export class Player {
       this.group.add(this.visual);
       this.visual.add(this.carryAnchor);
       this.animator = hero.animator;
+      this.applyCarryAnchorConfig();
+      this.setCarryState('NONE');
       this.group.userData.heroAppearance = this.profile.appearance;
-      this.group.userData.heroCanonical = 'kaykit-engineer-v9';
-      GameLogger.lifecycle('KayKit engineer promoted');
+      this.group.userData.heroCanonical = 'kaykit-engineer-v9-carry-rebuild';
+      GameLogger.lifecycle('KayKit engineer promoted with rebuilt carry rig');
     } catch (error) {
       GameLogger.lifecycle('KayKit engineer unavailable; fallback enabled', error);
       fallback.visible = true;
