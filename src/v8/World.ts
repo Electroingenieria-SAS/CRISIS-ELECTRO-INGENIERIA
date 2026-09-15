@@ -1,13 +1,27 @@
 import * as THREE from 'three';
 import { World as EnvironmentWorld } from './WorldEnvironmentCore';
 import { CarryGripConstraint } from './gameplay/CarryGripConstraint';
+import { subscribeCombatCues } from './gameplay/CombatCue';
 import { DoorComponent } from './gameplay/DoorComponent';
 import { DEFAULT_CARRY_CONFIG, type CarryConfig } from './gameplay/GameplayComponents';
 import { KinematicPhysicsWorld } from './gameplay/KinematicPhysicsWorld';
 import { GameLogger } from './gameplay/GameLogger';
 import { V9DebugOverlay } from './gameplay/V9DebugOverlay';
-import type { WorldContextTarget } from './types';
+import type { CombatHitResult, WorldContextTarget, WorldInteractionResult } from './types';
 import { installVerticalSliceFurnitureColliders } from './world/ZoneCollisionProfiles';
+
+type PendingAttack = {
+  origin: THREE.Vector3;
+  forward: THREE.Vector3;
+  elapsed: number;
+};
+
+type PendingInteraction = {
+  id: string;
+  target: THREE.Vector3;
+  elapsed: number;
+  commitAt: number;
+};
 
 /** Public V9 world entry point layered over the stable V8 compositor. */
 export class World extends EnvironmentWorld {
@@ -17,9 +31,16 @@ export class World extends EnvironmentWorld {
   private readonly v9Debug = new V9DebugOverlay();
   private readonly carryGripConstraint = new CarryGripConstraint();
   private debugEnabled = false;
+  private pendingAttack: PendingAttack | null = null;
+  private pendingInteraction: PendingInteraction | null = null;
+  private unsubscribeCombatCues: () => void = () => undefined;
 
   override init(): void {
     GameLogger.configureFromLocation();
+    this.unsubscribeCombatCues();
+    this.unsubscribeCombatCues = subscribeCombatCues((cue) => {
+      if (cue === 'attack-impact') this.commitPendingAttack();
+    });
     super.init();
     installVerticalSliceFurnitureColliders(this.colliders);
     this.registerCarryableBodies();
@@ -32,6 +53,14 @@ export class World extends EnvironmentWorld {
 
   override update(dt: number, playerPosition?: THREE.Vector3): void {
     for (const door of this.doors) door.update(dt);
+    this.updatePendingInteraction(dt);
+    if (this.pendingAttack) {
+      this.pendingAttack.elapsed += dt;
+      if (this.pendingAttack.elapsed > 1.0) {
+        GameLogger.interaction('discarded stale pending attack');
+        this.pendingAttack = null;
+      }
+    }
     this.physics.step(dt);
     super.update(dt, playerPosition);
     const sceneRoot = this.group.parent ?? this.group;
@@ -55,6 +84,42 @@ export class World extends EnvironmentWorld {
     );
   }
 
+  /**
+   * Existing GameCore requests the effect immediately after starting the player
+   * animation. V9 queues the effect instead: the character faces the configured
+   * interaction point first, then the gameplay state changes inside the action.
+   */
+  override interactContext(id: string): WorldInteractionResult {
+    const entry = this.registry.get(id);
+    if (!entry || entry.enabled === false) return { handled: false };
+    if (this.pendingInteraction) {
+      return { handled: true, title: entry.label, message: 'Espera a que termine la interacción actual.' };
+    }
+
+    const point = entry.interaction?.point ?? entry.object;
+    const target = point.getWorldPosition(new THREE.Vector3());
+    const commitAt = entry.kind === 'pickup' ? 0.40 : entry.kind === 'door' ? 0.24 : 0.30;
+    this.pendingInteraction = { id, target, elapsed: 0, commitAt };
+    GameLogger.interaction('queued contextual interaction', id, entry.kind, { commitAt });
+    return {
+      handled: true,
+      title: entry.label,
+      message: entry.kind === 'pickup' ? 'Recogiendo…' : 'Interactuando…',
+      tone: 'normal'
+    };
+  }
+
+  /** Damage authority is committed only by the real animation marker. */
+  override attack(origin: THREE.Vector3, forward: THREE.Vector3): CombatHitResult {
+    this.pendingAttack = {
+      origin: origin.clone(),
+      forward: forward.clone().setY(0).normalize(),
+      elapsed: 0
+    };
+    GameLogger.interaction('armed attack impact', this.pendingAttack.origin.toArray(), this.pendingAttack.forward.toArray());
+    return { hit: false, damagedIds: [], destroyedIds: [], reactedIds: [] };
+  }
+
   override toggleDebug(): boolean {
     this.debugEnabled = super.toggleDebug();
     this.v9Debug.setEnabled(this.debugEnabled);
@@ -74,6 +139,47 @@ export class World extends EnvironmentWorld {
 
   doorComponents(): readonly DoorComponent[] {
     return this.doors;
+  }
+
+  disposeV9(): void {
+    this.unsubscribeCombatCues();
+    this.unsubscribeCombatCues = () => undefined;
+    this.pendingAttack = null;
+    this.pendingInteraction = null;
+    this.carryGripConstraint.reset();
+    this.v9Debug.dispose();
+  }
+
+  private commitPendingAttack(): void {
+    const pending = this.pendingAttack;
+    if (!pending) return;
+    this.pendingAttack = null;
+    const result = super.attack(pending.origin, pending.forward);
+    GameLogger.interaction('attack impact committed', result);
+  }
+
+  private updatePendingInteraction(dt: number): void {
+    const pending = this.pendingInteraction;
+    if (!pending) return;
+    pending.elapsed += dt;
+
+    const sceneRoot = this.group.parent ?? this.group;
+    const player = sceneRoot.getObjectByName('V9_PLAYER');
+    const visual = player?.getObjectByName('V9_HERO_KAYKIT_ENGINEER')
+      ?? player?.getObjectByName('V9_HERO_FALLBACK');
+    if (player && visual) {
+      const dx = pending.target.x - player.position.x;
+      const dz = pending.target.z - player.position.z;
+      if (dx * dx + dz * dz > 0.0001) {
+        const targetYaw = Math.atan2(dx, dz);
+        visual.rotation.y = this.lerpAngle(visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 24));
+      }
+    }
+
+    if (pending.elapsed < pending.commitAt) return;
+    this.pendingInteraction = null;
+    const result = super.interactContext(pending.id);
+    GameLogger.interaction('context interaction committed', pending.id, result);
   }
 
   private adoptLegacyDoor(): void {
@@ -217,5 +323,10 @@ export class World extends EnvironmentWorld {
     if (id.startsWith('pallet-') || largestDimension > 1.8) return 'HEAVY';
     if (id === 'master-block' || id.startsWith('pkg-')) return 'MEDIUM';
     return largestDimension < 0.85 ? 'LIGHT' : 'MEDIUM';
+  }
+
+  private lerpAngle(a: number, b: number, t: number): number {
+    const delta = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+    return a + delta * t;
   }
 }
