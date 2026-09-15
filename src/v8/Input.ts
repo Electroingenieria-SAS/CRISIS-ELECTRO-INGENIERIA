@@ -5,6 +5,7 @@ export class Input {
   private pointerDx = 0;
   private pointerDy = 0;
   private wheel = 0;
+  private disposed = false;
 
   constructor(private element: HTMLElement) {
     window.addEventListener('keydown', this.onKeyDown, { passive: false });
@@ -13,7 +14,7 @@ export class Input {
     window.addEventListener('pointerup', this.onPointerUp);
     window.addEventListener('pointermove', this.onPointerMove);
     element.addEventListener('wheel', this.onWheel, { passive: false });
-    element.addEventListener('contextmenu', (event) => event.preventDefault());
+    element.addEventListener('contextmenu', this.onContextMenu);
   }
 
   isDown(...codes: string[]): boolean {
@@ -41,6 +42,20 @@ export class Input {
   }
 
   endFrame(): void {
+    this.pressed.clear();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    this.element.removeEventListener('pointerdown', this.onPointerDown);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointermove', this.onPointerMove);
+    this.element.removeEventListener('wheel', this.onWheel);
+    this.element.removeEventListener('contextmenu', this.onContextMenu);
+    this.down.clear();
     this.pressed.clear();
   }
 
@@ -78,5 +93,9 @@ export class Input {
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
     this.wheel += event.deltaY;
+  };
+
+  private onContextMenu = (event: Event): void => {
+    event.preventDefault();
   };
 }
