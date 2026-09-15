@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { CharacterAnimator, type CharacterAction } from './animation/CharacterAnimator';
 import { HeroCharacter } from './characters/HeroCharacter';
-import { RiggedHeroCharacter } from './characters/RiggedHeroCharacter';
 import type { Collider, PlayerProfile } from './types';
 import type { Input } from './Input';
 
@@ -20,14 +19,12 @@ export class Player {
   private carriedId: string | null = null;
   private carriedObject: THREE.Object3D | null = null;
   private animator!: PlayerAnimator;
-  private rigged = false;
 
   constructor(private profile: PlayerProfile) {
     this.group.name = 'V8_PLAYER';
-    this.buildFallbackAvatar();
+    this.buildHero();
     this.carrySocket.position.set(0, 1.42, 0.78);
     this.group.add(this.carrySocket);
-    void this.promoteToRiggedHero();
   }
 
   update(dt: number, input: Input, colliders: Collider[], screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
@@ -101,7 +98,7 @@ export class Player {
     return { id, object };
   }
 
-  private buildFallbackAvatar(): void {
+  private buildHero(): void {
     const role = this.profile.role === 'quality' ? 'quality' : this.profile.role === 'process' ? 'production' : 'maintenance';
     const hero = new HeroCharacter();
     const model = hero.create({
@@ -112,9 +109,11 @@ export class Player {
     });
 
     this.visual = model.visual;
-    this.visual.name = 'V8_HERO_FALLBACK';
+    this.visual.name = 'V8_HERO_CANONICAL';
     this.group.add(this.visual);
     this.animator = new CharacterAnimator({ ...model.rig, root: this.group, visual: this.visual });
+    this.group.userData.heroAppearance = this.profile.appearance;
+    this.group.userData.heroCanonical = true;
 
     const shadow = new THREE.Mesh(
       new THREE.CircleGeometry(0.52, 28),
@@ -124,25 +123,6 @@ export class Player {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.015;
     this.group.add(shadow);
-  }
-
-  private async promoteToRiggedHero(): Promise<void> {
-    try {
-      const rigged = await new RiggedHeroCharacter().load(this.profile.appearance);
-      if (this.carriedId) return;
-
-      const oldVisual = this.visual;
-      this.group.remove(oldVisual);
-      this.visual = rigged.root;
-      this.group.add(this.visual);
-      this.animator = rigged.animator;
-      this.rigged = true;
-      this.group.userData.riggedHero = true;
-      this.group.userData.heroAppearance = this.profile.appearance;
-    } catch (error) {
-      console.warn('[V8] Rigged hero unavailable; retaining customized procedural fallback.', error);
-      this.rigged = false;
-    }
   }
 
   private collides(position: THREE.Vector3, colliders: Collider[]): boolean {
