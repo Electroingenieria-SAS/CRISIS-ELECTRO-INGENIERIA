@@ -49,8 +49,8 @@ export class UI {
           <aside class="v8-start-copy v8-creator-brand">
             <small>ELECTROINGENIERÍA S.A.S.</small>
             <h1>CREA TU<br><em>INVESTIGADOR</em></h1>
-            <p>Escoge una silueta KayKit real y conviértela en tu ingeniero. Personaliza colores y EPP sin deformar el diseño original.</p>
-            <div class="v8-ppe-lock"><b>⛑</b><span><strong>CASCO OBLIGATORIO</strong><small>Siempre forma parte del personaje; puedes elegir su color.</small></span></div>
+            <p>Escoge una silueta KayKit real. Las piezas medievales y armas se retiran; todos usan casco, chaleco EI y equipo de trabajo industrial.</p>
+            <div class="v8-ppe-lock"><b>⛑</b><span><strong>EPP OBLIGATORIO</strong><small>Casco + chaleco EI siempre forman parte del personaje.</small></span></div>
             <label>Nombre<input id="v8-name" value="Investigador" maxlength="28" required></label>
             <label>Equipo<input id="v8-team" value="Equipo Aurora" maxlength="24" required></label>
             <div class="v8-roles">
@@ -63,11 +63,11 @@ export class UI {
           <section class="v8-creator-stage">
             <div class="v8-creator-stage-head"><small>VISTA PREVIA 3D</small><b>PERSONAJE PRINCIPAL</b></div>
             <div id="v8-hero-preview" class="v8-hero-preview"><div class="v8-preview-loading">CARGANDO INGENIERO…</div></div>
-            <div class="v8-preview-note"><span>BASE KAYKIT</span><span>CHALECO EI</span><span>RIG REAL</span></div>
+            <div class="v8-preview-note"><span>BASE KAYKIT</span><span>SIN ARMAS</span><span>CHALECO EI</span></div>
           </section>
 
           <form id="v8-profile" class="v8-profile v8-profile--creator v8-wardrobe-panel">
-            <div class="v8-creator-title"><small>PERSONALIZACIÓN</small><h2>Diseña tu ingeniero</h2><p>La silueta y la cara vienen del personaje base; tú defines identidad industrial, colores y EPP.</p></div>
+            <div class="v8-creator-title"><small>PERSONALIZACIÓN</small><h2>Diseña tu ingeniero</h2><p>La silueta y el rostro vienen del personaje base. Personaliza únicamente elementos que sí cambian de forma consistente.</p></div>
 
             <fieldset><legend>Modelo base</legend><div class="v8-choice-row">
               <label><input type="radio" name="base" value="knight" checked><span><b>Operativo</b><small>Compacto</small></span></label>
@@ -81,13 +81,6 @@ export class UI {
               <label title="Medio"><input type="radio" name="skin" value="#B97857"><span style="--sw:#B97857"></span></label>
               <label title="Moreno"><input type="radio" name="skin" value="#875238"><span style="--sw:#875238"></span></label>
               <label title="Oscuro"><input type="radio" name="skin" value="#5B3528"><span style="--sw:#5B3528"></span></label>
-            </div></fieldset>
-
-            <fieldset><legend>Color de cabello</legend><div class="v8-swatches v8-swatches--hair">
-              <label title="Negro"><input type="radio" name="hair" value="#181513"><span style="--sw:#181513"></span></label>
-              <label title="Castaño oscuro"><input type="radio" name="hair" value="#352722" checked><span style="--sw:#352722"></span></label>
-              <label title="Castaño"><input type="radio" name="hair" value="#6B4937"><span style="--sw:#6B4937"></span></label>
-              <label title="Cobrizo"><input type="radio" name="hair" value="#A67645"><span style="--sw:#A67645"></span></label>
             </div></fieldset>
 
             <fieldset><legend>Color del uniforme</legend><div class="v8-choice-row">
@@ -108,11 +101,7 @@ export class UI {
               <label><input type="radio" name="bootStyle" value="steel"><span>Acero</span></label>
             </div></fieldset>
 
-            <fieldset><legend>EPP exterior</legend><div class="v8-choice-row">
-              <label><input type="radio" name="ppeStyle" value="vest" checked><span>Chaleco EI</span></label>
-              <label><input type="radio" name="ppeStyle" value="harness"><span>Arnés</span></label>
-              <label><input type="radio" name="ppeStyle" value="id-only"><span>Solo ID</span></label>
-            </div><div class="v8-swatches v8-swatches--large">
+            <fieldset><legend>Color del chaleco EI</legend><div class="v8-swatches v8-swatches--large">
               <label title="Azul"><input type="radio" name="vest" value="#2E8CC5" checked><span style="--sw:#2E8CC5"></span></label>
               <label title="Amarillo"><input type="radio" name="vest" value="#F3C83F"><span style="--sw:#F3C83F"></span></label>
               <label title="Naranja"><input type="radio" name="vest" value="#E9803A"><span style="--sw:#E9803A"></span></label>
@@ -127,7 +116,7 @@ export class UI {
             </div></fieldset>
 
             <div class="v8-toggle-row">
-              <label class="v8-toggle"><input id="v8-glasses" type="checkbox" checked><span></span><b>Gafas negras</b></label>
+              <label class="v8-toggle"><input id="v8-glasses" type="checkbox" checked><span></span><b>Gafas oscuras</b></label>
               <label class="v8-toggle"><input id="v8-gloves" type="checkbox" checked><span></span><b>Guantes</b></label>
             </div>
             <button type="submit">CONFIRMAR PERSONAJE <b>→</b></button>
@@ -144,19 +133,18 @@ export class UI {
 
       const readAppearance = (): HeroAppearance => {
         const base = readRadio('base') as HeroAppearance['base'];
-        const hairStyle: HeroAppearance['hairStyle'] = base === 'rogue' ? 'side' : base === 'mage' ? 'wave' : 'short';
         return {
           base,
           build: 'standard',
           face: 'balanced',
           skin: readRadio('skin'),
-          hair: readRadio('hair'),
-          hairStyle,
+          hair: '#2B211C',
+          hairStyle: base === 'rogue' ? 'side' : base === 'mage' ? 'wave' : 'short',
           uniform: readRadio('uniform') as HeroAppearance['uniform'],
           topStyle: 'workshirt',
           pantsStyle: readRadio('pantsStyle') as HeroAppearance['pantsStyle'],
           bootStyle: readRadio('bootStyle') as HeroAppearance['bootStyle'],
-          ppeStyle: readRadio('ppeStyle') as HeroAppearance['ppeStyle'],
+          ppeStyle: 'vest',
           vest: readRadio('vest'),
           helmet: readRadio('helmet'),
           glasses: this.modal.querySelector<HTMLInputElement>('#v8-glasses')!.checked,
