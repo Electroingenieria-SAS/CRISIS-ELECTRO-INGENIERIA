@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CharacterAnimator, type CharacterAction } from './animation/CharacterAnimator';
-import { EngineerHeroCharacter } from './characters/EngineerHeroCharacter';
+import { EngineerHeroCharacterV2 } from './characters/EngineerHeroCharacterV2';
 import { HeroCharacter } from './characters/HeroCharacter';
 import type { Collider, PlayerProfile } from './types';
 import type { Input } from './Input';
@@ -100,11 +100,6 @@ export class Player {
     return { id, object };
   }
 
-  /**
-   * The procedural avatar is only a technical fallback while the local GLB is
-   * parsed. It stays hidden during normal operation so the player never sees a
-   * body swap after leaving the creator.
-   */
   private buildFallbackHero(): void {
     const role = this.profile.role === 'quality' ? 'quality' : this.profile.role === 'process' ? 'production' : 'maintenance';
     const hero = new HeroCharacter();
@@ -134,7 +129,7 @@ export class Player {
   private async promoteToEngineerHero(): Promise<void> {
     const fallback = this.visual;
     try {
-      const hero = await new EngineerHeroCharacter().load(this.profile.appearance);
+      const hero = await new EngineerHeroCharacterV2().load(this.profile.appearance);
       if (this.carriedId) {
         fallback.visible = true;
         return;
@@ -142,13 +137,13 @@ export class Player {
 
       this.group.remove(fallback);
       this.visual = hero.root;
-      this.visual.name = 'V8_HERO_KAYKIT_ENGINEER';
+      this.visual.name = 'V8_HERO_KAYKIT_ENGINEER_V2';
       this.group.add(this.visual);
       this.animator = hero.animator;
       this.group.userData.heroAppearance = this.profile.appearance;
-      this.group.userData.heroCanonical = 'kaykit-engineer';
+      this.group.userData.heroCanonical = 'kaykit-engineer-v2';
     } catch (error) {
-      console.warn('[V8] KayKit engineer hero unavailable; enabling fallback.', error);
+      console.warn('[V8] KayKit engineer V2 unavailable; enabling fallback.', error);
       fallback.visible = true;
     }
   }
