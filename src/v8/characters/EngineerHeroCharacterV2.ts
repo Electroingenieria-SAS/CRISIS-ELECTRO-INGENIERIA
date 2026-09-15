@@ -13,7 +13,6 @@ type HeroMaterialsV2 = {
   dark: THREE.MeshStandardMaterial;
   reflective: THREE.MeshPhysicalMaterial;
   helmet: THREE.MeshPhysicalMaterial;
-  helmetInner: THREE.MeshStandardMaterial;
   boots: THREE.MeshPhysicalMaterial;
   sunglassLens: THREE.MeshPhysicalMaterial;
 };
@@ -28,6 +27,7 @@ type HeroMaterialsV2 = {
  */
 export class EngineerHeroCharacterV2 {
   private static readonly CANONICAL_CHARACTER_SCALE = 0.94;
+  private static readonly CANONICAL_CHARACTER_HEIGHT = 2.35;
 
   async load(appearance: HeroAppearance): Promise<EngineerHeroAssetV2> {
     const { scene, clips } = await RiggedCharacterLibrary.clone(appearance.base);
@@ -55,12 +55,15 @@ export class EngineerHeroCharacterV2 {
       node.frustumCulled = true;
     });
 
+    this.normalizeHeight(scene, EngineerHeroCharacterV2.CANONICAL_CHARACTER_HEIGHT);
+
     root.userData.heroAsset = `KayKit ${appearance.base} → EI Engineer`;
-    root.userData.heroStyle = 'kaykit-engineer-v5';
+    root.userData.heroStyle = 'kaykit-engineer-v6';
     root.userData.usesKayKitFace = true;
     root.userData.extraEyes = false;
     root.userData.fantasyPropsStripped = true;
     root.userData.canonicalScale = EngineerHeroCharacterV2.CANONICAL_CHARACTER_SCALE;
+    root.userData.canonicalHeight = EngineerHeroCharacterV2.CANONICAL_CHARACTER_HEIGHT;
     root.userData.appearance = { ...appearance, ppeStyle: 'vest' };
 
     return { root, animator: new RiggedHeroAnimator(root, clips) };
@@ -69,6 +72,15 @@ export class EngineerHeroCharacterV2 {
   private buildScale(_build: HeroBuild): THREE.Vector3 {
     const s = EngineerHeroCharacterV2.CANONICAL_CHARACTER_SCALE;
     return new THREE.Vector3(s, s, s);
+  }
+
+  private normalizeHeight(object: THREE.Object3D, targetHeight: number): void {
+    object.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(object);
+    const currentHeight = box.max.y - box.min.y;
+    if (!Number.isFinite(currentHeight) || currentHeight <= 0.001) return;
+    object.scale.multiplyScalar(targetHeight / currentHeight);
+    object.updateMatrixWorld(true);
   }
 
   private materials(appearance: HeroAppearance): HeroMaterialsV2 {
@@ -92,12 +104,16 @@ export class EngineerHeroCharacterV2 {
       }),
       helmet: new THREE.MeshPhysicalMaterial({
         color: new THREE.Color(appearance.helmet),
-        roughness: 0.24,
+        roughness: 0.22,
         metalness: 0.01,
-        clearcoat: 0.48,
-        clearcoatRoughness: 0.18
+        clearcoat: 0.52,
+        clearcoatRoughness: 0.16,
+        transparent: false,
+        opacity: 1,
+        depthWrite: true,
+        depthTest: true,
+        side: THREE.FrontSide
       }),
-      helmetInner: new THREE.MeshStandardMaterial({ color: 0x121719, roughness: 0.78, metalness: 0.01 }),
       boots: new THREE.MeshPhysicalMaterial({
         color: bootColor,
         roughness: 0.52,
@@ -159,69 +175,67 @@ export class EngineerHeroCharacterV2 {
   }
 
   /**
-   * Professional industrial hardhat V5.
-   * The revolved shell is intentionally larger than the KayKit skull and the
-   * solid lower crown intersects the top of the head, preventing any geometry
-   * from visually piercing the helmet.
+   * Professional industrial hardhat V6.
+   * Everything visible uses the selected helmet colour: no black inner liner is
+   * exposed. The lower shell overlaps the authored skull and closes the helmet.
    */
   private addIndustrialHelmet(root: THREE.Object3D, mat: HeroMaterialsV2): void {
     const head = root.getObjectByName('head');
     if (!head) return;
 
     const hardhat = new THREE.Group();
-    hardhat.name = 'EI_ENGINEER_HARDHAT_V5';
+    hardhat.name = 'EI_ENGINEER_HARDHAT_V6';
     hardhat.userData.requiredPPE = true;
 
-    const profile = [
-      new THREE.Vector2(0.00, 1.105),
-      new THREE.Vector2(0.23, 1.075),
-      new THREE.Vector2(0.40, 0.985),
-      new THREE.Vector2(0.525, 0.845),
-      new THREE.Vector2(0.595, 0.675),
-      new THREE.Vector2(0.605, 0.505),
-      new THREE.Vector2(0.585, 0.410)
-    ];
-    const shell = new THREE.Mesh(new THREE.LatheGeometry(profile, 48), mat.helmet);
-    shell.scale.z = 0.96;
-    shell.castShadow = true;
-    hardhat.add(shell);
-
-    // Solid inner crown masks the upper skull even during animation.
-    const innerCrown = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.552, 0.565, 0.205, 48, 1, false),
-      mat.helmetInner
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(0.625, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.64),
+      mat.helmet
     );
-    innerCrown.position.set(0, 0.485, -0.008);
-    innerCrown.scale.z = 0.94;
-    hardhat.add(innerCrown);
+    dome.position.set(0, 0.700, -0.018);
+    dome.scale.set(1.00, 0.82, 0.97);
+    dome.castShadow = true;
+    hardhat.add(dome);
 
-    // Full safety brim plus a slightly longer front peak.
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.655, 0.655, 0.026, 48), mat.helmet);
-    brim.position.set(0, 0.385, 0.000);
+    const lowerShell = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.585, 0.598, 0.245, 48, 1, false),
+      mat.helmet
+    );
+    lowerShell.position.set(0, 0.500, -0.010);
+    lowerShell.scale.z = 0.95;
+    lowerShell.castShadow = true;
+    hardhat.add(lowerShell);
+
+    const brim = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.665, 0.675, 0.030, 48, 1, false),
+      mat.helmet
+    );
+    brim.position.set(0, 0.375, 0.000);
     brim.scale.z = 0.91;
+    brim.castShadow = true;
     hardhat.add(brim);
 
-    const frontPeak = new THREE.Mesh(this.roundedPanelGeometry(0.46, 0.15, 0.035, 0.025), mat.helmet);
+    const frontPeak = new THREE.Mesh(this.roundedPanelGeometry(0.48, 0.16, 0.035, 0.032), mat.helmet);
     frontPeak.rotation.x = Math.PI / 2;
-    frontPeak.position.set(0, 0.385, 0.515);
+    frontPeak.position.set(0, 0.372, 0.525);
     hardhat.add(frontPeak);
 
-    // Structural ribs/slots make it read as PPE instead of a hemisphere.
-    const crownRidge = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.038, 0.38), mat.helmet);
-    crownRidge.position.set(0, 1.005, -0.020);
+    const crownRidge = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.040, 0.36), mat.helmet);
+    crownRidge.position.set(0, 1.060, -0.020);
     hardhat.add(crownRidge);
 
     for (const side of [-1, 1] as const) {
-      const sideRib = new THREE.Mesh(new THREE.BoxGeometry(0.030, 0.22, 0.055), mat.helmet);
-      sideRib.position.set(side * 0.43, 0.715, -0.020);
-      sideRib.rotation.z = side * -0.22;
+      const sideRib = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.205, 0.060), mat.helmet);
+      sideRib.position.set(side * 0.445, 0.705, -0.020);
+      sideRib.rotation.z = side * -0.20;
       hardhat.add(sideRib);
-
-      const slot = new THREE.Mesh(new THREE.BoxGeometry(0.090, 0.035, 0.028), mat.dark);
-      slot.position.set(side * 0.43, 0.515, 0.190);
-      slot.rotation.z = side * 0.05;
-      hardhat.add(slot);
     }
+
+    const badgeBase = new THREE.Mesh(this.roundedPanelGeometry(0.105, 0.060, 0.014, 0.012), mat.reflective);
+    badgeBase.position.set(0, 0.525, 0.575);
+    hardhat.add(badgeBase);
+    const badgeMark = new THREE.Mesh(new THREE.BoxGeometry(0.060, 0.012, 0.006), mat.dark);
+    badgeMark.position.set(0, 0.525, 0.584);
+    hardhat.add(badgeMark);
 
     head.add(hardhat);
   }
@@ -279,13 +293,11 @@ export class EngineerHeroCharacterV2 {
   }
 
   private buildProfessionalVest(parent: THREE.Group, mat: HeroMaterialsV2): void {
-    // Single solid wrap block. It intentionally intersects the KayKit torso.
     const vestBlock = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.535, 0.72), mat.accent);
     vestBlock.name = 'EI_VEST_SOLID_BLOCK';
     vestBlock.position.set(0, -0.035, 0.015);
     parent.add(vestBlock);
 
-    // Front construction details sit outside the solid block, so there are no gaps.
     const frontZ = 0.382;
     const centerSeam = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.455, 0.018), mat.dark);
     centerSeam.position.set(0, -0.035, frontZ);
@@ -299,12 +311,10 @@ export class EngineerHeroCharacterV2 {
     lowerBand.position.set(0, -0.145, frontZ + 0.002);
     parent.add(lowerBand);
 
-    // Back reflective strip on the same solid vest block.
     const backBand = new THREE.Mesh(new THREE.BoxGeometry(0.555, 0.032, 0.018), mat.reflective);
     backBand.position.set(0, -0.070, -0.354);
     parent.add(backBand);
 
-    // Subtle shoulder caps maintain the safety-vest silhouette without opening seams.
     for (const side of [-1, 1] as const) {
       const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.165, 0.085, 0.16), mat.accent);
       shoulder.position.set(side * 0.235, 0.245, 0.010);
