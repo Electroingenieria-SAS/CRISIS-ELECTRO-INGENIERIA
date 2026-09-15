@@ -5,14 +5,17 @@ export type ZoneId = 'control' | 'warehouse' | 'production' | 'quality' | 'maint
 export type HeroHairStyle = 'short' | 'side' | 'buzz' | 'wave';
 export type HeroBuild = 'slim' | 'standard' | 'athletic';
 export type HeroUniform = 'navy' | 'graphite' | 'teal';
+export type HeroFace = 'soft' | 'balanced' | 'angular';
 
 export type HeroAppearance = {
   build: HeroBuild;
+  face: HeroFace;
   skin: string;
   hair: string;
   hairStyle: HeroHairStyle;
   uniform: HeroUniform;
   vest: string;
+  helmet: string;
   glasses: boolean;
 };
 
