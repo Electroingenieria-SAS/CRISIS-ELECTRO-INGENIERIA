@@ -22,8 +22,12 @@ export default defineConfig({
     }
   },
   webServer: {
-    command: 'npm run preview -- --port 4173',
-    url: 'http://127.0.0.1:4173',
+    // GitHub Actions normally makes Vite infer the repository Pages subpath.
+    // Browser QA deliberately serves the already-built local-root candidate at
+    // `/` so Playwright exercises exactly the bundle produced in the preceding
+    // workflow step, independent of GitHub Pages routing.
+    command: 'VITE_BASE_PATH=/ npm run preview -- --port 4173',
+    url: 'http://127.0.0.1:4173/',
     timeout: 120_000,
     reuseExistingServer: false,
     stdout: 'pipe',
