@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 export type ZoneId = 'control' | 'warehouse' | 'production' | 'quality' | 'maintenance' | 'dispatch' | 'capa';
 
+export type HeroBase = 'knight' | 'rogue' | 'mage';
 export type HeroHairStyle = 'short' | 'side' | 'buzz' | 'wave';
 export type HeroBuild = 'slim' | 'standard' | 'athletic';
 export type HeroUniform = 'navy' | 'graphite' | 'teal';
@@ -12,6 +13,7 @@ export type HeroBootStyle = 'black' | 'yellow' | 'steel';
 export type HeroPpeStyle = 'harness' | 'vest' | 'id-only';
 
 export type HeroAppearance = {
+  base: HeroBase;
   build: HeroBuild;
   face: HeroFace;
   skin: string;
