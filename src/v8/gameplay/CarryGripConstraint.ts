@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { GameLogger } from './GameLogger';
 
 /**
- * Lightweight carry contact solver.
+ * Conservative hand-contact correction for carried objects.
  *
- * It deliberately does not solve a full skeletal IK chain. KayKit Holding_* owns
- * the arm pose; this constraint only shifts the carry anchor by the averaged
- * hand/grip error, bounded to a few centimetres. That keeps authored animation
- * stable while making differently-sized objects sit between the real hand bones.
+ * The authored KayKit Holding_* clip owns the arms. This solver only makes a
+ * small vertical/forward correction while deliberately locking the carry anchor
+ * to the actor centre line. That prevents a hand mismatch from pushing the box
+ * beside or behind the character.
  */
 export class CarryGripConstraint {
   private player: THREE.Object3D | null = null;
@@ -18,35 +18,36 @@ export class CarryGripConstraint {
   private rightHand: THREE.Object3D | null = null;
   private anchorParent: THREE.Object3D | null = null;
   private readonly rest = new THREE.Vector3();
-  private restCaptured = false;
   private warnedMissingBones = false;
   private readonly handL = new THREE.Vector3();
   private readonly handR = new THREE.Vector3();
   private readonly gripL = new THREE.Vector3();
   private readonly gripR = new THREE.Vector3();
+  private readonly handMid = new THREE.Vector3();
+  private readonly gripMid = new THREE.Vector3();
   private readonly targetWorld = new THREE.Vector3();
   private readonly targetLocal = new THREE.Vector3();
-  private readonly correction = new THREE.Vector3();
 
   update(sceneRoot: THREE.Object3D, dt: number): void {
     if (!this.resolve(sceneRoot)) return;
     const anchor = this.anchor!;
     const parent = this.anchorParent!;
-    if (!this.restCaptured) {
-      this.rest.copy(anchor.position);
-      this.restCaptured = true;
-    }
+    const state = String(anchor.userData.state ?? 'NONE');
+    const stableCarry = state === 'CARRY_IDLE' || state === 'CARRY_WALK';
 
-    const carried = anchor.children.some((child) => child.userData.carried === true);
-    if (!carried) {
-      this.dampTo(anchor.position, this.rest, 11, dt);
+    // Pickup/put-down own the object's visible travel. Never fight those
+    // transitions by moving the carry anchor at the same time.
+    if (!stableCarry) {
+      this.dampTo(anchor.position, this.rest, 18, dt);
       return;
     }
+
     if (!this.leftHand || !this.rightHand) {
       if (!this.warnedMissingBones) {
         this.warnedMissingBones = true;
-        GameLogger.animation('carry grip constraint unavailable: KayKit hand bones not resolved');
+        GameLogger.animation('carry grip correction disabled: KayKit hand bones not resolved');
       }
+      this.dampTo(anchor.position, this.rest, 18, dt);
       return;
     }
 
@@ -56,21 +57,21 @@ export class CarryGripConstraint {
     this.leftGrip!.getWorldPosition(this.gripL);
     this.rightGrip!.getWorldPosition(this.gripR);
 
-    // Average both grip errors. This avoids over-constraining the skinned arms
-    // while still keeping the object's centre physically between the hands.
-    this.correction
-      .copy(this.handL).sub(this.gripL)
-      .add(this.handR.clone().sub(this.gripR))
-      .multiplyScalar(0.5);
-
-    anchor.getWorldPosition(this.targetWorld).add(this.correction);
+    this.handMid.copy(this.handL).add(this.handR).multiplyScalar(0.5);
+    this.gripMid.copy(this.gripL).add(this.gripR).multiplyScalar(0.5);
+    anchor.getWorldPosition(this.targetWorld).add(this.handMid.sub(this.gripMid));
     this.targetLocal.copy(this.targetWorld);
     parent.worldToLocal(this.targetLocal);
 
-    this.targetLocal.x = this.rest.x + THREE.MathUtils.clamp(this.targetLocal.x - this.rest.x, -0.16, 0.16);
-    this.targetLocal.y = this.rest.y + THREE.MathUtils.clamp(this.targetLocal.y - this.rest.y, -0.18, 0.18);
-    this.targetLocal.z = this.rest.z + THREE.MathUtils.clamp(this.targetLocal.z - this.rest.z, -0.22, 0.22);
-    this.dampTo(anchor.position, this.targetLocal, 16, dt);
+    // Lateral position is non-negotiable: a carried box belongs on the centre
+    // line. Hands may refine height/depth only within a narrow safe envelope.
+    this.targetLocal.x = this.rest.x;
+    this.targetLocal.y = this.rest.y + THREE.MathUtils.clamp(this.targetLocal.y - this.rest.y, -0.10, 0.11);
+    this.targetLocal.z = this.rest.z + THREE.MathUtils.clamp(this.targetLocal.z - this.rest.z, -0.08, 0.08);
+
+    // Never permit the object to drift behind the authored carry plane.
+    this.targetLocal.z = Math.max(this.targetLocal.z, this.rest.z - 0.08);
+    this.dampTo(anchor.position, this.targetLocal, 14, dt);
   }
 
   reset(): void {
@@ -81,7 +82,6 @@ export class CarryGripConstraint {
     this.leftHand = null;
     this.rightHand = null;
     this.anchorParent = null;
-    this.restCaptured = false;
     this.warnedMissingBones = false;
   }
 
@@ -93,7 +93,7 @@ export class CarryGripConstraint {
     const rightGrip = player.getObjectByName('V9_RIGHT_HAND_GRIP');
     if (!anchor || !leftGrip || !rightGrip || !anchor.parent) return false;
 
-    if (player !== this.player || anchor !== this.anchor) {
+    if (player !== this.player || anchor !== this.anchor || anchor.parent !== this.anchorParent) {
       this.player = player;
       this.anchor = anchor;
       this.leftGrip = leftGrip;
@@ -102,12 +102,15 @@ export class CarryGripConstraint {
       this.leftHand = this.findHand(anchor.parent, 'left');
       this.rightHand = this.findHand(anchor.parent, 'right');
       this.rest.copy(anchor.position);
-      this.restCaptured = true;
       this.warnedMissingBones = false;
       GameLogger.animation('carry grip constraint resolved', {
+        rest: this.rest.toArray(),
         leftHand: this.leftHand?.name ?? 'missing',
         rightHand: this.rightHand?.name ?? 'missing'
       });
+    } else {
+      const configured = anchor.userData.restPosition as [number, number, number] | undefined;
+      if (configured) this.rest.set(configured[0], configured[1], configured[2]);
     }
     return true;
   }
