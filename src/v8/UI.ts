@@ -48,8 +48,8 @@ export class UI {
           <aside class="v8-start-copy v8-creator-brand">
             <small>ELECTROINGENIERÍA S.A.S.</small>
             <h1>CREA TU<br><em>INVESTIGADOR</em></h1>
-            <p>Tu personaje se construirá con esta apariencia y la conservará durante toda Operación Aurora.</p>
-            <div class="v8-ppe-lock"><b>⛑</b><span><strong>CASCO OBLIGATORIO</strong><small>El casco industrial siempre forma parte del personaje.</small></span></div>
+            <p>Construye un investigador propio. Los cambios que ves aquí serán los mismos que usarás dentro de Operación Aurora.</p>
+            <div class="v8-ppe-lock"><b>⛑</b><span><strong>CASCO OBLIGATORIO</strong><small>Es parte del EPP. Puedes elegir su acabado, pero no retirarlo.</small></span></div>
             <label>Nombre<input id="v8-name" value="Investigador" maxlength="28" required></label>
             <label>Equipo<input id="v8-team" value="Equipo Aurora" maxlength="24" required></label>
             <div class="v8-roles">
@@ -61,8 +61,8 @@ export class UI {
 
           <section class="v8-creator-stage">
             <div class="v8-creator-stage-head"><small>VISTA PREVIA 3D</small><b>PERSONAJE PRINCIPAL</b></div>
-            <div id="v8-hero-preview" class="v8-hero-preview"><div class="v8-preview-loading">CARGANDO RIG 3D…</div></div>
-            <div class="v8-preview-note"><span>RIG ESQUELÉTICO</span><span>PPE INDUSTRIAL</span><span>ANIMACIÓN REAL</span></div>
+            <div id="v8-hero-preview" class="v8-hero-preview"><div class="v8-preview-loading">CARGANDO PERSONAJE 3D…</div></div>
+            <div class="v8-preview-note"><span>QUATERNIUS CC0</span><span>EPP EI</span><span>RIG ESQUELÉTICO</span></div>
           </section>
 
           <form id="v8-profile" class="v8-profile v8-profile--creator">
@@ -72,6 +72,12 @@ export class UI {
               <label><input type="radio" name="build" value="slim"><span>Esbelta</span></label>
               <label><input type="radio" name="build" value="standard" checked><span>Estándar</span></label>
               <label><input type="radio" name="build" value="athletic"><span>Atlética</span></label>
+            </div></fieldset>
+
+            <fieldset><legend>Rostro</legend><div class="v8-choice-row">
+              <label><input type="radio" name="face" value="soft"><span>Suave</span></label>
+              <label><input type="radio" name="face" value="balanced" checked><span>Equilibrado</span></label>
+              <label><input type="radio" name="face" value="angular"><span>Angular</span></label>
             </div></fieldset>
 
             <fieldset><legend>Tono de piel</legend><div class="v8-swatches">
@@ -88,10 +94,10 @@ export class UI {
               <label><input type="radio" name="hairStyle" value="buzz"><span>Rapado</span></label>
               <label><input type="radio" name="hairStyle" value="wave"><span>Ondulado</span></label>
             </div><div class="v8-swatches v8-swatches--hair">
-              <label><input type="radio" name="hair" value="#181513"><span style="--sw:#181513"></span></label>
-              <label><input type="radio" name="hair" value="#352722" checked><span style="--sw:#352722"></span></label>
-              <label><input type="radio" name="hair" value="#6B4937"><span style="--sw:#6B4937"></span></label>
-              <label><input type="radio" name="hair" value="#A67645"><span style="--sw:#A67645"></span></label>
+              <label title="Negro"><input type="radio" name="hair" value="#181513"><span style="--sw:#181513"></span></label>
+              <label title="Castaño oscuro"><input type="radio" name="hair" value="#352722" checked><span style="--sw:#352722"></span></label>
+              <label title="Castaño"><input type="radio" name="hair" value="#6B4937"><span style="--sw:#6B4937"></span></label>
+              <label title="Cobrizo"><input type="radio" name="hair" value="#A67645"><span style="--sw:#A67645"></span></label>
             </div></fieldset>
 
             <fieldset><legend>Uniforme</legend><div class="v8-choice-row">
@@ -100,12 +106,18 @@ export class UI {
               <label><input type="radio" name="uniform" value="teal"><span>Verde técnico</span></label>
             </div></fieldset>
 
-            <fieldset><legend>Chaleco / identificación</legend><div class="v8-swatches v8-swatches--large">
+            <fieldset><legend>Arnés / identificación</legend><div class="v8-swatches v8-swatches--large">
               <label title="Azul"><input type="radio" name="vest" value="#2E8CC5" checked><span style="--sw:#2E8CC5"></span></label>
               <label title="Amarillo"><input type="radio" name="vest" value="#F3C83F"><span style="--sw:#F3C83F"></span></label>
               <label title="Naranja"><input type="radio" name="vest" value="#E9803A"><span style="--sw:#E9803A"></span></label>
               <label title="Verde"><input type="radio" name="vest" value="#55A879"><span style="--sw:#55A879"></span></label>
               <label title="Rojo"><input type="radio" name="vest" value="#C65E5E"><span style="--sw:#C65E5E"></span></label>
+            </div></fieldset>
+
+            <fieldset><legend>Casco · EPP obligatorio</legend><div class="v8-swatches v8-swatches--large">
+              <label title="Amarillo seguridad"><input type="radio" name="helmet" value="#F3C83F" checked><span style="--sw:#F3C83F"></span></label>
+              <label title="Blanco"><input type="radio" name="helmet" value="#E9EEF0"><span style="--sw:#E9EEF0"></span></label>
+              <label title="Azul"><input type="radio" name="helmet" value="#2E8CC5"><span style="--sw:#2E8CC5"></span></label>
             </div></fieldset>
 
             <label class="v8-toggle"><input id="v8-glasses" type="checkbox" checked><span></span><b>Gafas de seguridad</b></label>
@@ -121,11 +133,13 @@ export class UI {
       const readRadio = (name: string): string => this.modal.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)!.value;
       const readAppearance = (): HeroAppearance => ({
         build: readRadio('build') as HeroAppearance['build'],
+        face: readRadio('face') as HeroAppearance['face'],
         skin: readRadio('skin'),
         hair: readRadio('hair'),
         hairStyle: readRadio('hairStyle') as HeroAppearance['hairStyle'],
         uniform: readRadio('uniform') as HeroAppearance['uniform'],
         vest: readRadio('vest'),
+        helmet: readRadio('helmet'),
         glasses: this.modal.querySelector<HTMLInputElement>('#v8-glasses')!.checked
       });
 
