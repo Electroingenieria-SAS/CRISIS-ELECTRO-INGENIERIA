@@ -6,6 +6,10 @@ export type HeroHairStyle = 'short' | 'side' | 'buzz' | 'wave';
 export type HeroBuild = 'slim' | 'standard' | 'athletic';
 export type HeroUniform = 'navy' | 'graphite' | 'teal';
 export type HeroFace = 'soft' | 'balanced' | 'angular';
+export type HeroTopStyle = 'workshirt' | 'polo' | 'coverall';
+export type HeroPantsStyle = 'cargo' | 'technical' | 'graphite';
+export type HeroBootStyle = 'black' | 'yellow' | 'steel';
+export type HeroPpeStyle = 'harness' | 'vest' | 'id-only';
 
 export type HeroAppearance = {
   build: HeroBuild;
@@ -14,9 +18,14 @@ export type HeroAppearance = {
   hair: string;
   hairStyle: HeroHairStyle;
   uniform: HeroUniform;
+  topStyle: HeroTopStyle;
+  pantsStyle: HeroPantsStyle;
+  bootStyle: HeroBootStyle;
+  ppeStyle: HeroPpeStyle;
   vest: string;
   helmet: string;
   glasses: boolean;
+  gloves: boolean;
 };
 
 export type PlayerProfile = {
