@@ -7,7 +7,10 @@
     "node": "22.x"
   },
   "scripts": {
+    "assets:kaykit": "node scripts/acquire-kaykit-engineer-bases.mjs",
+    "predev": "npm run assets:kaykit",
     "dev": "vite --host 0.0.0.0",
+    "prebuild": "npm run assets:kaykit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
