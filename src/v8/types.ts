@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { CarryConfig, DamageConfig, InteractionConfig, PhysicsBodyType, WorldObjectCategory } from './gameplay/GameplayComponents';
 
 export type ZoneId = 'control' | 'warehouse' | 'production' | 'quality' | 'maintenance' | 'dispatch' | 'capa';
 
@@ -64,6 +65,8 @@ export type Carryable = {
   object: THREE.Object3D;
   radius: number;
   home?: [number, number, number];
+  carryConfig?: Partial<CarryConfig>;
+  bodyType?: PhysicsBodyType;
 };
 
 export type DropSocket = {
@@ -110,6 +113,11 @@ export type WorldObjectDefinition = {
   health?: number;
   maxHealth?: number;
   state?: Record<string, unknown>;
+  category?: WorldObjectCategory;
+  bodyType?: PhysicsBodyType;
+  carryConfig?: Partial<CarryConfig>;
+  interaction?: InteractionConfig;
+  damage?: DamageConfig;
 };
 
 export type WorldContextTarget = {
@@ -120,6 +128,7 @@ export type WorldContextTarget = {
   key: 'E' | 'F' | 'SPACE';
   object: THREE.Object3D;
   distance: number;
+  interactionPoint?: THREE.Object3D;
 };
 
 export type WorldInteractionResult = {
@@ -134,6 +143,7 @@ export type CombatHitResult = {
   hit: boolean;
   destroyedIds: string[];
   damagedIds: string[];
+  reactedIds?: string[];
 };
 
 export type GameState = {
