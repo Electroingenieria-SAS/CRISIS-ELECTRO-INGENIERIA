@@ -58,6 +58,7 @@ export class RiggedHeroCharacter {
 
     root.userData.heroAsset = 'Quaternius Universal Base Characters';
     root.userData.heroLicense = 'CC0-1.0';
+    root.userData.appearance = { ...appearance };
     const animator = new RiggedHeroAnimator(root, source.clips);
     return { root, animator };
   }
@@ -141,11 +142,8 @@ export class RiggedHeroCharacter {
           material.roughness = Math.max(0.46, material.roughness);
           material.metalness = Math.min(0.08, material.metalness);
           if (materialName.includes('hair') || nodeName.includes('hair')) material.color.copy(hairTint);
-          else if (materialName.includes('eye') || nodeName.includes('eye')) {
-            material.roughness = 0.32;
-          } else {
-            material.color.multiply(skinTint.clone().lerp(new THREE.Color(0xffffff), 0.34));
-          }
+          else if (materialName.includes('eye') || nodeName.includes('eye')) material.roughness = 0.32;
+          else material.color.multiply(skinTint.clone().lerp(new THREE.Color(0xffffff), 0.34));
         }
         return material;
       });
@@ -153,7 +151,11 @@ export class RiggedHeroCharacter {
     });
 
     const head = model.getObjectByName('Head');
-    if (head) head.scale.setScalar(1.07);
+    if (head) {
+      if (appearance.face === 'soft') head.scale.set(1.13, 1.07, 1.1);
+      else if (appearance.face === 'angular') head.scale.set(1.0, 1.13, 1.02);
+      else head.scale.set(1.07, 1.07, 1.07);
+    }
   }
 
   private addIndustrialKit(model: THREE.Group, appearance: HeroAppearance): void {
@@ -173,7 +175,7 @@ export class RiggedHeroCharacter {
     const trousers = new THREE.MeshStandardMaterial({ color: palette.trousers, roughness: 0.78, metalness: 0.025 });
     const vest = new THREE.MeshPhysicalMaterial({ color: vestColor, roughness: 0.44, metalness: 0.035, clearcoat: 0.24, clearcoatRoughness: 0.36 });
     const reflective = new THREE.MeshPhysicalMaterial({ color: 0xf4fbfc, roughness: 0.2, metalness: 0.1, clearcoat: 0.34, emissive: 0x7299a4, emissiveIntensity: 0.05 });
-    const hardhat = new THREE.MeshPhysicalMaterial({ color: 0xf3c83f, roughness: 0.32, metalness: 0.03, clearcoat: 0.48, clearcoatRoughness: 0.22 });
+    const hardhat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(appearance.helmet), roughness: 0.32, metalness: 0.03, clearcoat: 0.48, clearcoatRoughness: 0.22 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x10191e, roughness: 0.68, metalness: 0.08 });
     const glass = new THREE.MeshPhysicalMaterial({ color: 0xa7d8e9, roughness: 0.08, transparent: true, opacity: 0.36, transmission: 0.26, thickness: 0.018, clearcoat: 0.5 });
     const hair = new THREE.MeshStandardMaterial({ color: new THREE.Color(appearance.hair), roughness: 0.78 });
@@ -301,9 +303,9 @@ export class RiggedHeroCharacter {
   private addFallbackPPE(root: THREE.Group, appearance: HeroAppearance): void {
     const head = root.getObjectByName('head');
     if (!head) return;
-    const yellow = new THREE.MeshPhysicalMaterial({ color: 0xf3c83f, roughness: 0.34, clearcoat: 0.42 });
+    const helmet = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(appearance.helmet), roughness: 0.34, clearcoat: 0.42 });
     const accent = new THREE.MeshStandardMaterial({ color: new THREE.Color(appearance.vest) });
     const reflective = new THREE.MeshStandardMaterial({ color: 0xf4fbfc });
-    this.addMandatoryHelmet(head, yellow, accent, reflective);
+    this.addMandatoryHelmet(head, helmet, accent, reflective);
   }
 }
