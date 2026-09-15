@@ -4,6 +4,7 @@ import { EngineerHeroCharacterV2 } from './characters/EngineerHeroCharacterV2';
 import type { HeroActionRequest, HeroAnimationState } from './characters/RiggedHeroAnimator';
 import { HeroCharacter } from './characters/HeroCharacter';
 import { emitCombatCue } from './gameplay/CombatCue';
+import { CARRY_FEEL, sampleCarrySettle, samplePickupLift, samplePutDown } from './gameplay/CarryMotion';
 import { DEFAULT_CARRY_CONFIG, WEIGHT_PROFILES, type CarryConfig, type CarryState } from './gameplay/GameplayComponents';
 import { GameLogger } from './gameplay/GameLogger';
 import type { PlayerProfile } from './types';
@@ -37,12 +38,14 @@ type FallbackTimeline = {
 };
 
 type ObjectPoseTransition = {
+  mode: 'LIFT' | 'LOWER' | 'SETTLE';
   elapsed: number;
   duration: number;
   fromPosition: THREE.Vector3;
   toPosition: THREE.Vector3;
   fromQuaternion: THREE.Quaternion;
   toQuaternion: THREE.Quaternion;
+  arcHeight?: number;
 };
 
 /**
@@ -50,9 +53,9 @@ type ObjectPoseTransition = {
  *
  * Position remains controller-authoritative. Authored KayKit animation supplies
  * anticipation/follow-through, while normalized markers synchronize physical
- * events. A carried object never teleports directly from floor to chest: at the
- * pickup contact marker it is re-parented preserving its world pose, then eased
- * into the carry anchor during the lift portion of the animation.
+ * events. Pickup uses a short safe approach, a real contact marker, a two-stage
+ * lift and a final settle so the object is visibly lifted and secured rather
+ * than magnetically absorbed by the carry socket.
  */
 export class Player {
   readonly group = new THREE.Group();
@@ -68,10 +71,12 @@ export class Player {
   private carryState: CarryState = 'NONE';
   private pendingTarget: THREE.Vector3 | null = null;
   private alignElapsed = 0;
+  private alignApproachDistance = 0;
   private animator!: PlayerAnimator;
   private inputRef: Input | null = null;
   private readonly velocity = new THREE.Vector3();
   private readonly desiredVelocity = new THREE.Vector3();
+  private readonly poseSample = new THREE.Vector3();
   private fallbackTimeline: FallbackTimeline | null = null;
   private objectPoseTransition: ObjectPoseTransition | null = null;
 
@@ -91,7 +96,7 @@ export class Player {
   update(dt: number, input: Input, resolveMovement: MovementResolver, screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
     this.inputRef = input;
     this.updateFallbackTimeline(dt);
-    this.updateAlignment(dt);
+    this.updateAlignment(dt, resolveMovement);
     this.updateObjectPoseTransition(dt);
 
     const transitionLocked = this.isCarryTransition() || Boolean(this.animator.isBusy?.() && this.carryState === 'NONE');
@@ -210,6 +215,7 @@ export class Player {
     this.pendingTarget = object.getWorldPosition(new THREE.Vector3()).setY(this.position.y);
     this.setCarryState('ALIGNING');
     this.alignElapsed = 0;
+    this.alignApproachDistance = 0;
     this.velocity.set(0, 0, 0);
     GameLogger.interaction('pickup requested', id, this.carryConfig.weightClass);
     return true;
@@ -227,8 +233,9 @@ export class Player {
     const localTarget = target.clone();
     this.carryAnchor.worldToLocal(localTarget);
     this.objectPoseTransition = {
+      mode: 'LOWER',
       elapsed: 0,
-      duration: Math.max(0.18, (config.putDownDuration ?? 0.78) * (config.releaseNormalizedTime ?? 0.62)),
+      duration: Math.max(0.24, (config.putDownDuration ?? 0.96) * (config.releaseNormalizedTime ?? 0.67)),
       fromPosition: object.position.clone(),
       toPosition: localTarget,
       fromQuaternion: object.quaternion.clone(),
@@ -240,12 +247,15 @@ export class Player {
       if (this.carryState === 'PUTDOWN') this.finishCarryCycle();
     };
     const played = this.playHeroState('putDown', {
-      marker: config.releaseNormalizedTime ?? 0.62,
+      marker: config.releaseNormalizedTime ?? 0.67,
       onMarker: release,
       onComplete: complete,
-      reverse: true
+      reverse: true,
+      timeScale: config.pickupTimeScale ?? 0.90,
+      fadeIn: 0.16,
+      fadeOut: 0.18
     }, 'drop');
-    if (!played) this.startFallbackTimeline(config.putDownDuration ?? 0.78, config.releaseNormalizedTime ?? 0.62, release, complete);
+    if (!played) this.startFallbackTimeline(config.putDownDuration ?? 0.96, config.releaseNormalizedTime ?? 0.67, release, complete);
     return { id, object };
   }
 
@@ -266,8 +276,8 @@ export class Player {
       const bridge = this.physicsBridge(this.carriedObject);
       parent.attach(this.carriedObject);
       const forward = direction.clone().setY(0).normalize();
-      const launch = forward.multiplyScalar((config.throwSpeed ?? 6.8) * weight.throwMultiplier);
-      launch.y = config.throwLift ?? 3.2;
+      const launch = forward.multiplyScalar((config.throwSpeed ?? 6.6) * weight.throwMultiplier);
+      launch.y = config.throwLift ?? 3.0;
       this.carriedObject.userData.carried = false;
       bridge?.launch(launch);
       GameLogger.physics('throw release', id, launch.toArray());
@@ -276,8 +286,8 @@ export class Player {
       this.setCarryState('THROW_RECOVERY');
       this.finishCarryCycle();
     };
-    const played = this.playHeroState('throw', { marker: 0.48, onMarker: release, onComplete: complete, fadeIn: 0.08, fadeOut: 0.12 }, 'drop');
-    if (!played) this.startFallbackTimeline(0.72, 0.48, release, complete);
+    const played = this.playHeroState('throw', { marker: 0.48, onMarker: release, onComplete: complete, fadeIn: 0.10, fadeOut: 0.14 }, 'drop');
+    if (!played) this.startFallbackTimeline(0.76, 0.48, release, complete);
     return { id, object };
   }
 
@@ -291,28 +301,32 @@ export class Player {
     if (!this.carriedId || !this.carriedObject) return this.finishCarryCycle();
     this.setCarryState('PICKUP_START');
     const config = this.carryConfig;
-    const duration = config.pickupDuration ?? 0.90;
-    const marker = config.attachNormalizedTime ?? 0.48;
+    const feel = CARRY_FEEL[config.weightClass];
+    const duration = config.pickupDuration ?? 1.08;
+    const timeScale = config.pickupTimeScale ?? feel.pickupTimeScale;
+    const marker = config.attachNormalizedTime ?? feel.attachMarker;
 
     const attach = () => {
       if (!this.carriedObject) return;
       const object = this.carriedObject;
       this.physicsBridge(object)?.setCarried();
 
-      // Object3D.attach preserves the exact world pose. The box therefore stays
-      // under the hands at the contact frame instead of teleporting to the chest.
+      // Preserve the exact world pose at hand contact. From this point the box
+      // rises first and only then moves inward toward the torso.
       this.carryAnchor.attach(object);
       const originalScale = object.userData.v9OriginalScale as THREE.Vector3 | undefined;
       if (originalScale) object.scale.copy(originalScale);
       object.userData.carried = true;
 
       this.objectPoseTransition = {
+        mode: 'LIFT',
         elapsed: 0,
-        duration: Math.max(0.16, duration * (1 - marker)),
+        duration: Math.max(0.30, (duration / Math.max(0.20, timeScale)) * (1 - marker)),
         fromPosition: object.position.clone(),
         toPosition: new THREE.Vector3(0, 0, 0),
         fromQuaternion: object.quaternion.clone(),
-        toQuaternion: new THREE.Quaternion()
+        toQuaternion: new THREE.Quaternion(),
+        arcHeight: feel.liftArc
       };
       this.setCarryState('PICKUP_LIFT');
       GameLogger.interaction('carry contact marker', this.carriedId, object.position.toArray());
@@ -320,15 +334,39 @@ export class Player {
 
     const complete = () => {
       if (!this.carriedObject || !this.carriedId) return;
-      this.carriedObject.position.set(0, 0, 0);
-      this.carriedObject.quaternion.identity();
-      this.objectPoseTransition = null;
+
+      // Never snap to the socket at clip completion. Any residual centimetres
+      // are resolved through a short settle transition while carry locomotion
+      // blends in underneath.
+      const currentPosition = this.carriedObject.position.clone();
+      const currentQuaternion = this.carriedObject.quaternion.clone();
+      const remaining = currentPosition.length();
+      if (remaining > 0.002 || currentQuaternion.angleTo(new THREE.Quaternion()) > 0.015) {
+        this.objectPoseTransition = {
+          mode: 'SETTLE',
+          elapsed: 0,
+          duration: config.settleDuration ?? feel.settleDuration,
+          fromPosition: currentPosition,
+          toPosition: new THREE.Vector3(),
+          fromQuaternion: currentQuaternion,
+          toQuaternion: new THREE.Quaternion()
+        };
+      } else {
+        this.objectPoseTransition = null;
+      }
       this.setCarryState('CARRY_IDLE');
-      GameLogger.interaction('carry lift complete', this.carriedId);
+      GameLogger.interaction('carry lift secured', this.carriedId, { remaining });
     };
 
-    const played = this.playHeroState('pickup', { marker, onMarker: attach, onComplete: complete, fadeIn: 0.10, fadeOut: 0.12 }, 'pickup');
-    if (!played) this.startFallbackTimeline(duration, marker, attach, complete);
+    const played = this.playHeroState('pickup', {
+      marker,
+      onMarker: attach,
+      onComplete: complete,
+      timeScale,
+      fadeIn: 0.18,
+      fadeOut: 0.20
+    }, 'pickup');
+    if (!played) this.startFallbackTimeline(duration / Math.max(0.20, timeScale), marker, attach, complete);
   }
 
   private releaseCarried(parent: THREE.Object3D, target: THREE.Vector3, launched: boolean): void {
@@ -336,8 +374,6 @@ export class Player {
     const object = this.carriedObject;
     parent.attach(object);
 
-    // Snap only the final few centimetres to the configured socket/ground point;
-    // the visible lowering has already happened before the release marker.
     const localTarget = target.clone();
     parent.worldToLocal(localTarget);
     object.position.copy(localTarget);
@@ -352,33 +388,67 @@ export class Player {
     this.carriedObject = null;
     this.objectPoseTransition = null;
     this.pendingTarget = null;
+    this.alignApproachDistance = 0;
     this.carryConfig = { ...DEFAULT_CARRY_CONFIG };
     this.applyCarryAnchorConfig();
     this.setCarryState('NONE');
   }
 
-  private updateAlignment(dt: number): void {
+  private updateAlignment(dt: number, resolveMovement: MovementResolver): void {
     if (this.carryState !== 'ALIGNING' || !this.pendingTarget) return;
     this.alignElapsed += dt;
+    const feel = CARRY_FEEL[this.carryConfig.weightClass];
     const dx = this.pendingTarget.x - this.position.x;
     const dz = this.pendingTarget.z - this.position.z;
-    if (dx * dx + dz * dz > 0.0001) {
+    const distance = Math.hypot(dx, dz);
+
+    if (distance > 0.0001) {
       const targetYaw = Math.atan2(dx, dz);
-      this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 22));
+      this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 18));
+
+      // Tiny controller-authoritative approach closes the visual gap without
+      // taking control away from the player or tunnelling through scenery.
+      const desiredStandoff = 0.82;
+      const remainingBudget = Math.max(0, feel.maxApproachDistance - this.alignApproachDistance);
+      if (distance > desiredStandoff && remainingBudget > 0.001) {
+        const step = Math.min(distance - desiredStandoff, feel.approachSpeed * dt, remainingBudget);
+        if (step > 0.0001) {
+          const direction = new THREE.Vector3(dx / distance, 0, dz / distance);
+          const desired = this.position.clone().addScaledVector(direction, step);
+          const resolved = resolveMovement(this.position, desired, 0.42);
+          const actual = resolved.distanceTo(this.position);
+          this.position.copy(resolved);
+          this.alignApproachDistance += actual;
+        }
+      }
     }
-    if (this.alignElapsed >= 0.18) this.startPickupAnimation();
+
+    if (this.alignElapsed >= feel.alignDuration) this.startPickupAnimation();
   }
 
   private updateObjectPoseTransition(dt: number): void {
     const transition = this.objectPoseTransition;
     const object = this.carriedObject;
     if (!transition || !object || object.parent !== this.carryAnchor) return;
+
     transition.elapsed += dt;
     const raw = THREE.MathUtils.clamp(transition.elapsed / Math.max(0.001, transition.duration), 0, 1);
-    const t = raw * raw * (3 - 2 * raw);
-    object.position.lerpVectors(transition.fromPosition, transition.toPosition, t);
-    object.quaternion.copy(transition.fromQuaternion).slerp(transition.toQuaternion, t);
-    if (raw >= 1) this.objectPoseTransition = null;
+    if (transition.mode === 'LIFT') {
+      samplePickupLift(transition.fromPosition, transition.toPosition, raw, transition.arcHeight ?? 0, this.poseSample);
+    } else if (transition.mode === 'LOWER') {
+      samplePutDown(transition.fromPosition, transition.toPosition, raw, this.poseSample);
+    } else {
+      sampleCarrySettle(transition.fromPosition, transition.toPosition, raw, this.poseSample);
+    }
+    object.position.copy(this.poseSample);
+
+    const rotationT = raw * raw * (3 - 2 * raw);
+    object.quaternion.copy(transition.fromQuaternion).slerp(transition.toQuaternion, rotationT);
+    if (raw >= 1) {
+      object.position.copy(transition.toPosition);
+      object.quaternion.copy(transition.toQuaternion);
+      this.objectPoseTransition = null;
+    }
   }
 
   private updateFallbackTimeline(dt: number): void {
@@ -437,16 +507,16 @@ export class Player {
     const halfZ = THREE.MathUtils.clamp(size.z * 0.5, 0.15, 0.58);
     const inferredPosition: THREE.Vector3Tuple = [
       0,
-      THREE.MathUtils.clamp(1.02 + size.y * 0.16, 1.08, 1.22),
-      THREE.MathUtils.clamp(0.43 + halfZ * 0.34, 0.49, 0.62)
+      THREE.MathUtils.clamp(0.98 + size.y * 0.12, 1.02, 1.16),
+      THREE.MathUtils.clamp(0.42 + halfZ * 0.22, 0.47, 0.56)
     ];
 
     return {
       ...DEFAULT_CARRY_CONFIG,
       ...partial,
       positionOffset: partial.positionOffset ?? inferredPosition,
-      leftHandGrip: partial.leftHandGrip ?? { position: [-halfX * 0.84, 0.02, 0.02] },
-      rightHandGrip: partial.rightHandGrip ?? { position: [halfX * 0.84, 0.02, 0.02] }
+      leftHandGrip: partial.leftHandGrip ?? { position: [-halfX * 0.84, -0.06, -0.05] },
+      rightHandGrip: partial.rightHandGrip ?? { position: [halfX * 0.84, -0.06, -0.05] }
     };
   }
 
@@ -456,8 +526,8 @@ export class Player {
     this.carryAnchor.position.set(x, y, z);
     this.carryAnchor.rotation.set(rx, ry, rz);
 
-    const left = this.carryConfig.leftHandGrip?.position ?? [-0.30, 0.02, 0.02];
-    const right = this.carryConfig.rightHandGrip?.position ?? [0.30, 0.02, 0.02];
+    const left = this.carryConfig.leftHandGrip?.position ?? [-0.30, -0.08, -0.06];
+    const right = this.carryConfig.rightHandGrip?.position ?? [0.30, -0.08, -0.06];
     this.leftGripDebug.position.set(left[0], left[1], left[2]);
     this.rightGripDebug.position.set(right[0], right[1], right[2]);
     this.carryAnchor.userData.restPosition = [x, y, z];
@@ -514,8 +584,8 @@ export class Player {
       this.applyCarryAnchorConfig();
       this.setCarryState('NONE');
       this.group.userData.heroAppearance = this.profile.appearance;
-      this.group.userData.heroCanonical = 'kaykit-engineer-v9-carry-rebuild';
-      GameLogger.lifecycle('KayKit engineer promoted with rebuilt carry rig');
+      this.group.userData.heroCanonical = 'kaykit-engineer-v9-carry-polish';
+      GameLogger.lifecycle('KayKit engineer promoted with polished carry rig');
     } catch (error) {
       GameLogger.lifecycle('KayKit engineer unavailable; fallback enabled', error);
       fallback.visible = true;
