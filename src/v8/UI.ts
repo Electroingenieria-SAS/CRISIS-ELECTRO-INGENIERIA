@@ -1,5 +1,6 @@
+import { HeroCustomizerPreview } from './characters/HeroCustomizerPreview';
 import { STORY, ZONES } from './content';
-import type { GameState, PlayerProfile, ZoneId } from './types';
+import type { GameState, HeroAppearance, PlayerProfile, ZoneId } from './types';
 
 export class UI {
   readonly layer = document.createElement('div');
@@ -43,31 +44,112 @@ export class UI {
   async createProfile(): Promise<PlayerProfile> {
     return new Promise((resolve) => {
       this.modal.innerHTML = `
-        <div class="v8-start">
-          <div class="v8-start-copy"><small>ELECTROINGENIERÍA S.A.S.</small><h1>OPERACIÓN<br><em>AURORA</em></h1><p>Aventura 3D de investigación, trazabilidad y mejora continua.</p></div>
-          <form id="v8-profile" class="v8-profile">
-            <h2>Identificación del investigador</h2>
+        <div class="v8-start v8-start--creator">
+          <aside class="v8-start-copy v8-creator-brand">
+            <small>ELECTROINGENIERÍA S.A.S.</small>
+            <h1>CREA TU<br><em>INVESTIGADOR</em></h1>
+            <p>Tu personaje se construirá con esta apariencia y la conservará durante toda Operación Aurora.</p>
+            <div class="v8-ppe-lock"><b>⛑</b><span><strong>CASCO OBLIGATORIO</strong><small>El casco industrial siempre forma parte del personaje.</small></span></div>
             <label>Nombre<input id="v8-name" value="Investigador" maxlength="28" required></label>
             <label>Equipo<input id="v8-team" value="Equipo Aurora" maxlength="24" required></label>
             <div class="v8-roles">
-              <label><input type="radio" name="role" value="quality" checked><span><b>Calidad</b><small>Lectura de evidencia</small></span></label>
-              <label><input type="radio" name="role" value="process"><span><b>Procesos</b><small>Flujo y causas</small></span></label>
-              <label><input type="radio" name="role" value="maintenance"><span><b>Mantenimiento</b><small>Riesgo técnico</small></span></label>
+              <label><input type="radio" name="role" value="quality" checked><span><b>Calidad</b><small>Evidencia</small></span></label>
+              <label><input type="radio" name="role" value="process"><span><b>Procesos</b><small>Flujo</small></span></label>
+              <label><input type="radio" name="role" value="maintenance"><span><b>Mantenimiento</b><small>Riesgo</small></span></label>
             </div>
-            <button type="submit">INICIAR MISIÓN <b>→</b></button>
+          </aside>
+
+          <section class="v8-creator-stage">
+            <div class="v8-creator-stage-head"><small>VISTA PREVIA 3D</small><b>PERSONAJE PRINCIPAL</b></div>
+            <div id="v8-hero-preview" class="v8-hero-preview"><div class="v8-preview-loading">CARGANDO RIG 3D…</div></div>
+            <div class="v8-preview-note"><span>RIG ESQUELÉTICO</span><span>PPE INDUSTRIAL</span><span>ANIMACIÓN REAL</span></div>
+          </section>
+
+          <form id="v8-profile" class="v8-profile v8-profile--creator">
+            <div class="v8-creator-title"><small>PERSONALIZACIÓN</small><h2>Diseña tu personaje</h2></div>
+
+            <fieldset><legend>Complexión</legend><div class="v8-choice-row">
+              <label><input type="radio" name="build" value="slim"><span>Esbelta</span></label>
+              <label><input type="radio" name="build" value="standard" checked><span>Estándar</span></label>
+              <label><input type="radio" name="build" value="athletic"><span>Atlética</span></label>
+            </div></fieldset>
+
+            <fieldset><legend>Tono de piel</legend><div class="v8-swatches">
+              <label title="Claro"><input type="radio" name="skin" value="#F0C7A7"><span style="--sw:#F0C7A7"></span></label>
+              <label title="Medio claro"><input type="radio" name="skin" value="#D9A27E" checked><span style="--sw:#D9A27E"></span></label>
+              <label title="Medio"><input type="radio" name="skin" value="#B97857"><span style="--sw:#B97857"></span></label>
+              <label title="Moreno"><input type="radio" name="skin" value="#875238"><span style="--sw:#875238"></span></label>
+              <label title="Oscuro"><input type="radio" name="skin" value="#5B3528"><span style="--sw:#5B3528"></span></label>
+            </div></fieldset>
+
+            <fieldset><legend>Cabello</legend><div class="v8-choice-row v8-choice-row--4">
+              <label><input type="radio" name="hairStyle" value="short"><span>Corto</span></label>
+              <label><input type="radio" name="hairStyle" value="side" checked><span>Lateral</span></label>
+              <label><input type="radio" name="hairStyle" value="buzz"><span>Rapado</span></label>
+              <label><input type="radio" name="hairStyle" value="wave"><span>Ondulado</span></label>
+            </div><div class="v8-swatches v8-swatches--hair">
+              <label><input type="radio" name="hair" value="#181513"><span style="--sw:#181513"></span></label>
+              <label><input type="radio" name="hair" value="#352722" checked><span style="--sw:#352722"></span></label>
+              <label><input type="radio" name="hair" value="#6B4937"><span style="--sw:#6B4937"></span></label>
+              <label><input type="radio" name="hair" value="#A67645"><span style="--sw:#A67645"></span></label>
+            </div></fieldset>
+
+            <fieldset><legend>Uniforme</legend><div class="v8-choice-row">
+              <label><input type="radio" name="uniform" value="navy" checked><span>Azul EI</span></label>
+              <label><input type="radio" name="uniform" value="graphite"><span>Grafito</span></label>
+              <label><input type="radio" name="uniform" value="teal"><span>Verde técnico</span></label>
+            </div></fieldset>
+
+            <fieldset><legend>Chaleco / identificación</legend><div class="v8-swatches v8-swatches--large">
+              <label title="Azul"><input type="radio" name="vest" value="#2E8CC5" checked><span style="--sw:#2E8CC5"></span></label>
+              <label title="Amarillo"><input type="radio" name="vest" value="#F3C83F"><span style="--sw:#F3C83F"></span></label>
+              <label title="Naranja"><input type="radio" name="vest" value="#E9803A"><span style="--sw:#E9803A"></span></label>
+              <label title="Verde"><input type="radio" name="vest" value="#55A879"><span style="--sw:#55A879"></span></label>
+              <label title="Rojo"><input type="radio" name="vest" value="#C65E5E"><span style="--sw:#C65E5E"></span></label>
+            </div></fieldset>
+
+            <label class="v8-toggle"><input id="v8-glasses" type="checkbox" checked><span></span><b>Gafas de seguridad</b></label>
+            <button type="submit">CONFIRMAR PERSONAJE <b>→</b></button>
           </form>
         </div>`;
+
       this.modal.classList.remove('is-hidden');
       const form = this.modal.querySelector<HTMLFormElement>('#v8-profile')!;
+      const previewHost = this.modal.querySelector<HTMLElement>('#v8-hero-preview')!;
+      const preview = new HeroCustomizerPreview(previewHost);
+
+      const readRadio = (name: string): string => this.modal.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)!.value;
+      const readAppearance = (): HeroAppearance => ({
+        build: readRadio('build') as HeroAppearance['build'],
+        skin: readRadio('skin'),
+        hair: readRadio('hair'),
+        hairStyle: readRadio('hairStyle') as HeroAppearance['hairStyle'],
+        uniform: readRadio('uniform') as HeroAppearance['uniform'],
+        vest: readRadio('vest'),
+        glasses: this.modal.querySelector<HTMLInputElement>('#v8-glasses')!.checked
+      });
+
+      let refreshTimer: number | null = null;
+      const refresh = () => {
+        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => void preview.setAppearance(readAppearance()), 60);
+      };
+      form.querySelectorAll<HTMLInputElement>('input').forEach((input) => input.addEventListener('change', refresh));
+      void preview.setAppearance(readAppearance());
+
       form.addEventListener('submit', (event) => {
         event.preventDefault();
-        const role = this.modal.querySelector<HTMLInputElement>('input[name="role"]:checked')!.value as PlayerProfile['role'];
+        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+        const role = readRadio('role') as PlayerProfile['role'];
+        const appearance = readAppearance();
         const profile: PlayerProfile = {
-          name: this.modal.querySelector<HTMLInputElement>('#v8-name')!.value.trim(),
-          team: this.modal.querySelector<HTMLInputElement>('#v8-team')!.value.trim(),
+          name: this.modal.querySelector<HTMLInputElement>('#v8-name')!.value.trim() || 'Investigador',
+          team: this.modal.querySelector<HTMLInputElement>('#v8-team')!.value.trim() || 'Equipo Aurora',
           role,
-          accent: role === 'quality' ? '#69B7F0' : role === 'process' ? '#55B985' : '#E8984A'
+          accent: appearance.vest,
+          appearance
         };
+        preview.dispose();
         this.modal.classList.add('is-hidden');
         this.modal.innerHTML = '';
         resolve(profile);
@@ -94,21 +176,9 @@ export class UI {
 
   async chapterIntro(kicker: string, title: string, body: string): Promise<void> {
     return new Promise((resolve) => {
-      this.modal.innerHTML = `
-        <div class="v8-chapter">
-          <small>${kicker}</small>
-          <div class="v8-chapter-line"></div>
-          <h2>${title}</h2>
-          <p>${body}</p>
-          <button id="v8-chapter-next">INICIAR SECTOR →</button>
-        </div>`;
+      this.modal.innerHTML = `<div class="v8-chapter"><small>${kicker}</small><div class="v8-chapter-line"></div><h2>${title}</h2><p>${body}</p><button id="v8-chapter-next">INICIAR SECTOR →</button></div>`;
       this.modal.classList.remove('is-hidden');
-      const done = () => {
-        window.removeEventListener('keydown', key);
-        this.modal.classList.add('is-hidden');
-        this.modal.innerHTML = '';
-        resolve();
-      };
+      const done = () => { window.removeEventListener('keydown', key); this.modal.classList.add('is-hidden'); this.modal.innerHTML = ''; resolve(); };
       const key = (event: KeyboardEvent) => { if (event.code === 'Enter' || event.code === 'Space' || event.code === 'KeyE') done(); };
       window.addEventListener('keydown', key);
       this.modal.querySelector('#v8-chapter-next')?.addEventListener('click', done, { once: true });
@@ -159,21 +229,9 @@ export class UI {
   async showEvidence(title: string, subtitle: string, rows: Array<[string, string]>): Promise<void> {
     return new Promise((resolve) => {
       const table = rows.map(([label, value]) => `<div class="v8-evidence-row"><span>${label}</span><b>${value}</b></div>`).join('');
-      this.modal.innerHTML = `
-        <div class="v8-evidence">
-          <small>EVIDENCIA DOCUMENTAL</small>
-          <h2>${title}</h2>
-          <p>${subtitle}</p>
-          <div class="v8-evidence-table">${table}</div>
-          <button id="v8-evidence-close">REGISTRAR EVIDENCIA →</button>
-        </div>`;
+      this.modal.innerHTML = `<div class="v8-evidence"><small>EVIDENCIA DOCUMENTAL</small><h2>${title}</h2><p>${subtitle}</p><div class="v8-evidence-table">${table}</div><button id="v8-evidence-close">REGISTRAR EVIDENCIA →</button></div>`;
       this.modal.classList.remove('is-hidden');
-      const done = () => {
-        window.removeEventListener('keydown', key);
-        this.modal.classList.add('is-hidden');
-        this.modal.innerHTML = '';
-        resolve();
-      };
+      const done = () => { window.removeEventListener('keydown', key); this.modal.classList.add('is-hidden'); this.modal.innerHTML = ''; resolve(); };
       const key = (event: KeyboardEvent) => { if (event.code === 'Enter' || event.code === 'Space' || event.code === 'KeyE') done(); };
       window.addEventListener('keydown', key);
       this.modal.querySelector('#v8-evidence-close')?.addEventListener('click', done, { once: true });
