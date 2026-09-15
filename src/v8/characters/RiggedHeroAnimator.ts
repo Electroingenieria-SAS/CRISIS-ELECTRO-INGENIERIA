@@ -31,12 +31,14 @@ interface ActiveOneShot {
 /**
  * V9 KayKit animation state machine.
  * Locomotion is controller-driven; gameplay synchronization uses normalized
- * animation markers instead of teleports/timeouts.
+ * animation markers. Finished one-shots stay alive for the full crossfade
+ * interval instead of being stopped on the next microtask.
  */
 export class RiggedHeroAnimator {
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<HeroAnimationState, THREE.AnimationAction>();
   private readonly scanner: THREE.Object3D | null;
+  private readonly retiring = new Map<THREE.AnimationAction, number>();
   private baseState: BaseState = 'idle';
   private moving = false;
   private sprinting = false;
@@ -79,7 +81,6 @@ export class RiggedHeroAnimator {
     else this.ensureBaseAuthority(desired);
   }
 
-  /** Backwards-compatible V8 action bridge. */
   play(action: Exclude<CharacterAction, null>): void {
     const mapped: Record<Exclude<CharacterAction, null>, HeroAnimationState> = {
       pickup: 'pickup',
@@ -106,6 +107,7 @@ export class RiggedHeroAnimator {
     this.active = { key: state, action: animation, request, markerFired: false, generation };
     if (this.scanner) this.scanner.visible = state === 'scan';
 
+    this.retiring.delete(animation);
     const reverse = request.reverse === true;
     const clipDuration = Math.max(0.001, animation.getClip().duration);
     animation.stop();
@@ -144,13 +146,16 @@ export class RiggedHeroAnimator {
     if (walk) walk.setEffectiveTimeScale(this.carrying ? 0.78 : 1);
     const carryWalk = this.actions.get('carryWalk');
     if (carryWalk) carryWalk.setEffectiveTimeScale(0.82);
+
     this.mixer.update(dt);
     this.fireMarkerIfNeeded();
+    this.updateRetiring(dt);
   }
 
   dispose(): void {
     this.generation += 1;
     this.active = null;
+    this.retiring.clear();
     this.mixer.removeEventListener('finished', this.onFinished);
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.root);
@@ -202,6 +207,7 @@ export class RiggedHeroAnimator {
   }
 
   private prepareBaseAction(action: THREE.AnimationAction): void {
+    this.retiring.delete(action);
     action.stopFading();
     action.stopWarping();
     action.enabled = true;
@@ -224,6 +230,23 @@ export class RiggedHeroAnimator {
     active.request.onMarker?.();
   }
 
+  private updateRetiring(dt: number): void {
+    for (const [action, remaining] of this.retiring) {
+      const next = remaining - dt;
+      if (next > 0) {
+        this.retiring.set(action, next);
+        continue;
+      }
+      this.retiring.delete(action);
+      if (this.active?.action === action) continue;
+      action.stopFading();
+      action.stopWarping();
+      action.stop();
+      action.enabled = false;
+      action.setEffectiveWeight(0);
+    }
+  }
+
   private onFinished = (event: { action: THREE.AnimationAction }): void => {
     const active = this.active;
     if (!active || active.action !== event.action) return;
@@ -244,19 +267,15 @@ export class RiggedHeroAnimator {
       this.prepareBaseAction(target);
       finished.stopFading();
       target.crossFadeFrom(finished, fadeOut, false);
-    }
-    this.baseState = target === this.actions.get(desired) ? desired : 'idle';
-
-    // Stop the completed one-shot on the next microtask after the fade has been
-    // scheduled. No timers/listeners accumulate across repeated interactions.
-    queueMicrotask(() => {
-      if (this.active?.action === finished) return;
+      this.retiring.set(finished, Math.max(0.05, fadeOut + 0.02));
+    } else {
       finished.stop();
       finished.enabled = false;
       finished.setEffectiveWeight(0);
-    });
+    }
+    this.baseState = target === this.actions.get(desired) ? desired : 'idle';
 
-    GameLogger.animation('one-shot complete', active.key);
+    GameLogger.animation('one-shot complete', active.key, { fadeOut });
     completed?.();
   };
 
