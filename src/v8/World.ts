@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { World as EnvironmentWorld } from './WorldEnvironmentCore';
+import { emitAudioCue } from './gameplay/AudioCue';
 import { CarryGripConstraint } from './gameplay/CarryGripConstraint';
 import { subscribeCombatCues } from './gameplay/CombatCue';
 import { DoorComponent } from './gameplay/DoorComponent';
@@ -30,6 +31,9 @@ export class World extends EnvironmentWorld {
   private readonly lastPlayerForward = new THREE.Vector3(0, 0, 1);
   private readonly v9Debug = new V9DebugOverlay();
   private readonly carryGripConstraint = new CarryGripConstraint();
+  private readonly lastFootstepPosition = new THREE.Vector3();
+  private footstepDistance = 0;
+  private footstepInitialized = false;
   private debugEnabled = false;
   private pendingAttack: PendingAttack | null = null;
   private pendingInteraction: PendingInteraction | null = null;
@@ -63,6 +67,7 @@ export class World extends EnvironmentWorld {
     }
     this.physics.step(dt);
     super.update(dt, playerPosition);
+    if (playerPosition) this.updateFootsteps(playerPosition);
     const sceneRoot = this.group.parent ?? this.group;
     this.carryGripConstraint.update(sceneRoot, dt);
     this.v9Debug.update(sceneRoot, this.registry.all(), this.doors);
@@ -76,9 +81,11 @@ export class World extends EnvironmentWorld {
   }
 
   override nearestContext(position: THREE.Vector3): WorldContextTarget | null {
+    // Carryables are intentionally omitted here because GameCore already applies
+    // chapter/mission gating through nearestCarryable() before context lookup.
     return this.registry.nearest(
       position,
-      ['pickup', 'door', 'container', 'puzzle', 'movable', 'carryable', 'breakable', 'interactable'],
+      ['pickup', 'door', 'container', 'puzzle', 'movable', 'breakable', 'interactable'],
       3.0,
       this.lastPlayerForward
     );
@@ -182,6 +189,26 @@ export class World extends EnvironmentWorld {
     GameLogger.interaction('context interaction committed', pending.id, result);
   }
 
+  private updateFootsteps(playerPosition: THREE.Vector3): void {
+    if (!this.footstepInitialized) {
+      this.lastFootstepPosition.copy(playerPosition);
+      this.footstepInitialized = true;
+      return;
+    }
+    const dx = playerPosition.x - this.lastFootstepPosition.x;
+    const dz = playerPosition.z - this.lastFootstepPosition.z;
+    const distance = Math.hypot(dx, dz);
+    this.lastFootstepPosition.copy(playerPosition);
+    // Ignore teleport/reset jumps and only accumulate real locomotion.
+    if (distance <= 0.0005 || distance > 1.25) return;
+    this.footstepDistance += distance;
+    const carrying = (this.group.parent ?? this.group).getObjectByName('V9_CARRY_ANCHOR')?.children.some((child) => child.userData.carried === true) ?? false;
+    const stride = carrying ? 1.35 : 1.65;
+    if (this.footstepDistance < stride) return;
+    this.footstepDistance %= stride;
+    emitAudioCue('footstep');
+  }
+
   private adoptLegacyDoor(): void {
     const entry = this.registry.get('control-exit-door');
     if (!entry?.state) return;
@@ -244,6 +271,34 @@ export class World extends EnvironmentWorld {
         weightClass: carryable.carryConfig?.weightClass ?? this.inferWeight(carryable.id, Math.max(size.x, size.y, size.z))
       };
       carryable.object.userData.v9CarryConfig = carryConfig;
+
+      const existing = this.registry.get(carryable.id);
+      if (!existing) {
+        this.registry.register({
+          id: carryable.id,
+          kind: 'carryable',
+          label: carryable.label,
+          object: carryable.object,
+          radius: carryable.radius,
+          category: 'MOVABLE',
+          bodyType: carryable.bodyType ?? 'STATIC',
+          carryConfig,
+          damage: {
+            category: 'MOVABLE',
+            material: carryable.id === 'master-block' ? 'METAL' : 'CARDBOARD',
+            hitReactionScale: 0.045
+          }
+        });
+      } else {
+        existing.category = 'MOVABLE';
+        existing.bodyType = carryable.bodyType ?? 'STATIC';
+        existing.carryConfig = carryConfig;
+        existing.damage ??= {
+          category: 'MOVABLE',
+          material: carryable.id === 'master-block' ? 'METAL' : 'CARDBOARD',
+          hitReactionScale: 0.045
+        };
+      }
 
       this.physics.register({
         id: carryable.id,
