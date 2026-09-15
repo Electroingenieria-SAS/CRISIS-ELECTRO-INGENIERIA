@@ -42,7 +42,7 @@ export class Player {
     const movement = new THREE.Vector3();
     movement.addScaledVector(screenUp, y).addScaledVector(screenRight, x);
     const moving = movement.lengthSq() > 0.001;
-    const sprint = input.isDown('ShiftLeft', 'ShiftRight') && !this.carriedId;
+    const sprint = !locked && input.isDown('ShiftLeft', 'ShiftRight') && !this.carriedId;
     const speed = (sprint ? 7.15 : 4.7) * (this.carriedId ? 0.76 : 1);
 
     if (moving) {
@@ -53,11 +53,9 @@ export class Player {
       this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 12));
     }
 
-    if (!locked && !this.carriedId) {
-      if (input.isDown('KeyF')) this.animator.play('scan');
-      else if (input.isDown('KeyE')) this.animator.play('interact');
-    }
-
+    // E/F actions are intentionally NOT triggered from held-key state here.
+    // GameCore owns interaction/scan events through Input.consume(), so each
+    // animation starts once per press instead of being reset every frame.
     this.animator.setLocomotion(moving, sprint, Boolean(this.carriedId));
     this.animator.update(dt);
   }
@@ -141,7 +139,7 @@ export class Player {
       this.group.add(this.visual);
       this.animator = hero.animator;
       this.group.userData.heroAppearance = this.profile.appearance;
-      this.group.userData.heroCanonical = 'kaykit-engineer-v2';
+      this.group.userData.heroCanonical = 'kaykit-engineer-v6';
     } catch (error) {
       console.warn('[V8] KayKit engineer V2 unavailable; enabling fallback.', error);
       fallback.visible = true;
