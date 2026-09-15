@@ -1,0 +1,77 @@
+name: V9 Isolated Pages Candidate
+
+on:
+  push:
+    branches:
+      - feature/v9-professional-polish
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-v9-candidate
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    environment:
+      name: v9-candidate-preview
+      url: ${{ steps.deployment.outputs.page_url }}v9-preview/
+    steps:
+      - name: Checkout stable V8
+        uses: actions/checkout@v4
+        with:
+          ref: ad64d1618cce57a78af75ee29ff974d1e182f835
+          path: stable-v8
+
+      - name: Checkout V9 candidate
+        uses: actions/checkout@v4
+        with:
+          path: v9
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Build stable V8 root
+        working-directory: stable-v8
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Test and build V9 subpath
+        working-directory: v9
+        env:
+          VITE_BASE_PATH: /CRISIS-ELECTRO-INGENIERIA/v9-preview/
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          npm run build
+
+      - name: Compose stable root plus isolated V9 candidate
+        shell: bash
+        run: |
+          mkdir -p site/v9-preview
+          cp -R stable-v8/dist/. site/
+          cp -R v9/dist/. site/v9-preview/
+          test -f site/index.html
+          test -f site/v9-preview/index.html
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload combined Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy isolated candidate
+        id: deployment
+        uses: actions/deploy-pages@v4
