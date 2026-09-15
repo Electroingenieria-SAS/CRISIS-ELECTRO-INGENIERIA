@@ -8,6 +8,7 @@ import type { Input } from './Input';
 interface PlayerAnimator {
   setLocomotion(moving: boolean, sprinting: boolean, carrying: boolean): void;
   play(action: Exclude<CharacterAction, null>): void;
+  playAttack?(): void;
   update(dt: number): void;
 }
 
@@ -22,6 +23,7 @@ export class Player {
   private carriedId: string | null = null;
   private carriedObject: THREE.Object3D | null = null;
   private animator!: PlayerAnimator;
+  private inputRef: Input | null = null;
 
   constructor(private profile: PlayerProfile) {
     this.group.name = 'V8_PLAYER';
@@ -32,6 +34,7 @@ export class Player {
   }
 
   update(dt: number, input: Input, resolveMovement: MovementResolver, screenUp: THREE.Vector3, screenRight: THREE.Vector3, locked: boolean): void {
+    this.inputRef = input;
     let x = 0;
     let y = 0;
     if (!locked) {
@@ -55,12 +58,18 @@ export class Player {
       this.visual.rotation.y = this.lerpAngle(this.visual.rotation.y, targetYaw, 1 - Math.exp(-dt * 12));
     }
 
-    // E/F actions are intentionally NOT triggered from held-key state here.
     this.animator.setLocomotion(moving, sprint, Boolean(this.carriedId));
     this.animator.update(dt);
   }
 
   playAction(action: Exclude<CharacterAction, null>): void {
+    // GameCore invokes the combat action through the legacy `interact` slot.
+    // Space remains in Input.down after consume(), allowing the rigged animator
+    // to select its real KayKit melee clip without coupling Player to GameCore.
+    if (action === 'interact' && this.inputRef?.isDown('Space') && this.animator.playAttack) {
+      this.animator.playAttack();
+      return;
+    }
     this.animator.play(action);
   }
 
